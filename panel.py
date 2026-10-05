@@ -3,11 +3,17 @@ Loopback only: it answers requests addressed to this machine, and form posts car
 
 The background lookout (one watcher pass per minute, Telegram alerts, the daily report) lives here too, so the panel
 is the only process touching datos/ while it runs.
+
+Phase 1 (the Kraken history and the walk-forward backtests) adds the /backtest page: its modules (sala.historico,
+sala.backtest, sala.estrategias) are imported where they are used, like app.py does with its commands, so the room, the
+office and the checks keep working even if those modules are missing.
 """
 import hmac
+import importlib
 import secrets
 import threading
 import time
+from datetime import date
 from urllib.parse import urlparse
 
 from flask import Flask, abort, flash, redirect, render_template, request, url_for
@@ -38,7 +44,7 @@ def crear_panel(vigia=True, bot=None):
     app.config["CSRF_TOKEN"] = csrf_token
 
     bot = bot if bot is not None else telegram.Bot()
-    trabajos = {}   # "vigia" -> {estado, log}, "calendario" -> {estado, log}
+    trabajos = {}   # "vigia" -> {estado, log}, "calendario" -> {estado, log}, "backtest" -> {estado, log, id}, "historico" -> {estado, log}
 
     # ---------- security ----------
 
@@ -67,6 +73,8 @@ def crear_panel(vigia=True, bot=None):
     @app.context_processor
     def globales():
         return {"csrf_token": csrf_token, "nombre_sala": nucleo.cargar_config().get("nombre", "La Madriguera Trading")}
+
+    app.jinja_env.filters["hora"] = lambda ts: time.strftime("%d/%m %H:%M", time.localtime(ts)) if ts else "—"
 
     def _automaticos():
         cfg = nucleo.cargar_config()
@@ -115,6 +123,70 @@ def crear_panel(vigia=True, bot=None):
         threading.Thread(target=correr, daemon=True).start()
 
     app.lanzar_calendario = lanzar_calendario   # the tests swap it for a fake
+
+    def _registrar(trabajo, quien):
+        # the callback the Phase 1 jobs get: plain text in, timestamped and signed line in the job log
+        return lambda m: trabajo["log"].append(f"{time.strftime('%H:%M:%S')}  {quien}: {m}")
+
+    def lanzar_backtest(estrategia, par, desde=None, hasta=None):
+        """The quant runs one walk-forward backtest in the background (one at a time; the page polls the log)."""
+        if trabajos.get("backtest", {}).get("estado") == "corriendo":
+            return
+        trabajo = {"estado": "corriendo", "log": [], "id": None}
+        trabajos["backtest"] = trabajo
+
+        def correr():
+            try:
+                from sala import backtest
+                res = backtest.correr(estrategia, par, desde or None, hasta or None, avisar=_registrar(trabajo, "Cuant"),
+                                      semillas=backtest.configuracion()["semillas_azar_panel"])
+                trabajo["id"] = res["id"]
+                trabajo["estado"] = "ok"
+            except Exception as e:
+                trabajo["log"].append(f"{time.strftime('%H:%M:%S')}  Error: {e}")
+                trabajo["estado"] = "error"
+
+        threading.Thread(target=correr, daemon=True).start()
+
+    def lanzar_historico():
+        """The archivist downloads the recent tail of the Kraken history (capped calls; years come from the CSV in the CLI)."""
+        if trabajos.get("historico", {}).get("estado") == "corriendo":
+            return
+        trabajo = {"estado": "corriendo", "log": []}
+        trabajos["historico"] = trabajo
+
+        def correr():
+            try:
+                from sala import historico
+                res = historico.actualizar(avisar=_registrar(trabajo, "Datos"), max_llamadas=historico.configuracion()["max_llamadas_panel"])
+                ocupados = [par for par, r in (res or {}).items() if r.get("ocupado")]
+                errores = [f"{mercado.nombre_par(par)}: {r['error']}" for par, r in (res or {}).items() if r.get("error")]
+                if ocupados:
+                    trabajo["log"].append(f"{time.strftime('%H:%M:%S')}  Otro proceso está actualizando el histórico; espera a que termine")
+                for e in errores:
+                    trabajo["log"].append(f"{time.strftime('%H:%M:%S')}  Error en {e}")
+                trabajo["estado"] = "error" if ocupados or errores else "ok"
+            except Exception as e:
+                trabajo["log"].append(f"{time.strftime('%H:%M:%S')}  Error: {e}")
+                trabajo["estado"] = "error"
+
+        threading.Thread(target=correr, daemon=True).start()
+
+    app.lanzar_backtest = lanzar_backtest     # the tests swap it for a fake
+    app.lanzar_historico = lanzar_historico
+
+    def _ocupado():
+        # True when some pair has a live ocupado.json (another process, usually the CLI, is writing its history)
+        try:
+            from sala import historico
+            ahora = time.time()
+            for par in mercado.configuracion()["pares"]:
+                bloqueo = mercado._leer_json(nucleo.DATOS_DIR / "historico" / par / "ocupado.json", None)
+                if isinstance(bloqueo, dict) and ahora - float(bloqueo.get("latido") or 0) < historico.LATIDO_MAX:
+                    return True
+        except Exception:
+            pass
+        return False
 
     # ---------- pages ----------
 
@@ -178,6 +250,68 @@ def crear_panel(vigia=True, bot=None):
             enviado = bot.texto(texto)
         return {"ok": True, "texto": texto, "enviado": enviado}
 
+    # ---------- Phase 1: history and backtests ----------
+
+    @app.route("/backtest", endpoint="backtest")
+    def backtest_pagina():
+        from sala import backtest as backtest_mod, estrategias, historico
+        indice = backtest_mod.indice(50)
+        return render_template("backtest.html", estrategias=estrategias.lista(), pares=mercado.configuracion()["pares"],
+                               historico=historico.resumen(), indice=indice,
+                               ultimo=backtest_mod.resultado(indice[0]["id"]) if indice else None,
+                               trabajo=trabajos.get("backtest"), trabajo_hist=trabajos.get("historico"), ocupado=_ocupado(),
+                               pruebas_total=backtest_mod.pruebas_total(), aviso=backtest_mod.AVISO_HONESTO,
+                               cfg_bt=backtest_mod.configuracion(), reglas=equipo_mod.REGLAS_RIESGO)
+
+    @app.post("/backtest")
+    def encargar_backtest():
+        from sala import estrategias
+        f = request.form
+        estrategia, par = f.get("estrategia", ""), f.get("par", "")
+        if estrategia not in estrategias.REGISTRO:
+            abort(404)
+        if par not in mercado.configuracion()["pares"]:
+            abort(404)
+        desde, hasta = f.get("desde", "").strip(), f.get("hasta", "").strip()
+        try:
+            for fecha in (desde, hasta):
+                if fecha:
+                    date.fromisoformat(fecha)
+        except ValueError:
+            if f.get("ajax"):
+                return {"ok": False, "error": "Fecha no válida: usa AAAA-MM-DD"}, 400
+            flash("Fecha no válida: usa AAAA-MM-DD", "error")
+            return redirect(url_for("backtest") + "#encargar")
+        app.lanzar_backtest(estrategia, par, desde, hasta)
+        if f.get("ajax"):
+            return {"ok": True, "trabajo": trabajos.get("backtest")}
+        flash("El analista cuantitativo está probando la estrategia; tarda entre segundos y varios minutos.", "ok")
+        return redirect(url_for("backtest") + "#trabajo")
+
+    @app.post("/historico")
+    def encargar_historico():
+        app.lanzar_historico()
+        if request.form.get("ajax"):
+            return {"ok": True, "trabajo": trabajos.get("historico")}
+        flash("El documentalista está bajando la cola del histórico de Kraken (unos minutos).", "ok")
+        return redirect(url_for("backtest") + "#datos")
+
+    @app.get("/backtest/estado")
+    def backtest_estado():
+        """Jobs, index and history summary for the backtest page (polled; kept out of /estado so the room stays light)."""
+        from sala import backtest as backtest_mod, historico
+        return {"trabajo": trabajos.get("backtest"), "trabajo_hist": trabajos.get("historico"),
+                "indice": backtest_mod.indice(50), "pruebas_total": backtest_mod.pruebas_total(),
+                "historico": historico.resumen(), "ocupado": _ocupado(), "hora": time.strftime("%H:%M:%S")}
+
+    @app.get("/backtest/<id>.json")
+    def backtest_resultado(id):
+        from sala import backtest as backtest_mod
+        res = backtest_mod.resultado(id)   # validates the id (RE_ID) itself
+        if res is None:
+            abort(404)
+        return res
+
     @app.route("/comprobar")
     def comprobar():
         return render_template("comprobar.html", inf=comprobar_todo(bot))
@@ -193,6 +327,11 @@ def comprobar_todo(bot=None, imprimir=False):
         mercado.comprobar(inf)
     except requests.RequestException as e:
         inf.error("Exchange", f"(sin conexión: {type(e).__name__})")
+    for titulo, modulo in (("Histórico", "historico"), ("Backtests", "backtest")):
+        try:
+            importlib.import_module(f"sala.{modulo}").comprobar(inf)
+        except Exception as e:
+            inf.error(titulo, f"({e})")
     bot.comprobar(inf)
     from sala import claude
     inf.seccion("Claude Code (opcional, solo para el calendario)")

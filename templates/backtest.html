@@ -1,0 +1,338 @@
+{% extends "base.html" %}
+{% block titulo %}Backtest · {{ nombre_sala }}{% endblock %}
+{% block cabeza %}
+<style>
+  .bt-cab { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: baseline; margin-bottom: 6px; }
+  .bt-cab h1 { margin: 0; }
+  .dos { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .dos > .caja { min-width: 0; }
+  .cal { width: 100%; border-collapse: collapse; }
+  .cal td, .cal th { padding: 7px 8px; text-align: left; border-top: 1px solid var(--borde); font-size: 14px; vertical-align: top; font-variant-numeric: tabular-nums; }
+  .cal th { color: var(--suave); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; border-top: 0; white-space: nowrap; }
+  .cal td.num, .cal th.num { text-align: right; }
+  .cal tr.fila { cursor: pointer; }
+  .cal tr.fila:hover td { background: var(--acento-suave); }
+  .cal tr.fila.elegida td { background: rgba(76,195,138,.08); }
+  .desplaza { overflow-x: auto; }
+  .chip.rojo { background: rgba(255,107,122,.12); color: var(--error); border: 1px solid var(--error); }
+  .chip.gris { background: var(--borde); color: var(--suave); }
+  .chip.pd { font-weight: 500; margin-left: 6px; }
+  .registro.rojo { color: var(--error); }
+  .form-bt { display: grid; gap: 10px; grid-template-columns: 2fr 1fr 1fr 1fr; align-items: end; }
+  .form-bt label { margin: 0 0 4px; font-size: 13px; color: var(--suave); }
+  .form-bt input[type=date] { width: 100%; padding: 10px 12px; border: 1px solid var(--borde); border-radius: 10px; background: var(--bg2); color: var(--texto); font: inherit; }
+  .form-bt .ancho { grid-column: 1 / -1; }
+  .nota { color: var(--suave); font-size: 13px; margin: 12px 0 0; }
+  .veredicto-titulo { font: 700 26px/1.2 "Space Grotesk", Inter, sans-serif; margin: 0 0 4px; letter-spacing: -.01em; }
+  .veredicto-titulo.pasa { color: var(--ok); } .veredicto-titulo.no_pasa { color: var(--error); } .veredicto-titulo.insuficiente { color: var(--suave); }
+  .puertas { list-style: none; margin: 14px 0; padding: 0; }
+  .puertas li { padding: 6px 0; border-top: 1px solid var(--borde); display: flex; gap: 10px; align-items: baseline; font-size: 14px; }
+  .puertas li:first-child { border-top: 0; }
+  .puertas .si { color: var(--ok); font-weight: 700; } .puertas .no { color: var(--error); font-weight: 700; }
+  .avisos { margin: 0 0 14px; padding-left: 20px; color: var(--aviso); font-size: 14px; }
+  .linea { margin: 8px 0 0; font-size: 14px; }
+  .curva-caja canvas { width: 100%; height: auto; display: block; border-radius: 10px; background: #0a0d12; }
+  .sube { color: var(--ok); } .baja { color: var(--error); }
+  @media (max-width: 760px) { .form-bt { grid-template-columns: 1fr 1fr; } .veredicto-titulo { font-size: 21px; } }
+</style>
+{% endblock %}
+{% block contenido %}
+{% macro num(x, d=2, signo=false) -%}
+  {%- if x is none %}—{% else %}{{ (('%+.' ~ d ~ 'f') if signo else ('%.' ~ d ~ 'f'))|format(x)|replace('.', ',') }}{% endif -%}
+{%- endmacro %}
+{% set ETIQUETA = {'pasa': 'PASA', 'no_pasa': 'NO PASA', 'insuficiente': 'INSUFICIENTE'} %}
+{% set CLASE = {'pasa': 'chip', 'no_pasa': 'chip rojo', 'insuficiente': 'chip gris'} %}
+{% set INTERVALOS = {'1': '1 min', '60': '60 min', '1440': '1 día'} %}
+
+<div class="bt-cab"><h1>🧪 Backtest</h1><span class="sim">Simulación · datos públicos · sin dinero real</span></div>
+<p class="sub">El analista cuantitativo prueba cada estrategia contra el histórico con walk-forward: elige parámetros en un tramo y los juzga en el siguiente, que nunca ha visto. Las puertas se evalúan solo fuera de muestra.</p>
+
+<div class="dos">
+  <div class="caja" id="datos">
+    <h2>🗄️ Datos disponibles</h2>
+    <div class="desplaza"><table class="cal" id="tabla-datos">
+      <thead><tr><th>Par</th><th>Intervalo</th><th>Desde – hasta</th><th class="num">Velas</th><th class="num">Huecos &gt; 1 h</th><th>Actualizado</th></tr></thead>
+      <tbody>
+      {% set ns = namespace(filas=0) %}
+      {% for par in pares %}{% for iv in (historico.get(par) or {}).keys()|map('int')|sort %}{% set d = historico[par][iv|string] %}
+        {% set ns.filas = ns.filas + 1 %}
+        <tr><td><b>{{ par }}</b></td><td>{{ INTERVALOS.get(iv|string, iv ~ ' min') }}</td><td>{{ d.desde }} – {{ d.hasta }}</td>
+            <td class="num">{{ '{:,}'.format(d.velas|int)|replace(',', '.') }}</td><td class="num">{{ d.huecos_largos }}</td>
+            <td>{{ d.actualizado|hora }}</td></tr>
+      {% endfor %}{% endfor %}
+      {% if not ns.filas %}<tr><td colspan="6" class="sub" style="margin:0">Todavía no hay histórico: ejecuta <code>python app.py historico</code> en el PC.</td></tr>{% endif %}
+      </tbody>
+    </table></div>
+    <form method="post" action="{{ url_for('encargar_historico') }}" id="form-historico" style="margin-top:12px"><input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <button class="suave" id="btn-hist" {{ 'disabled' if (trabajo_hist and trabajo_hist.estado == 'corriendo') or ocupado }}>{% if trabajo_hist and trabajo_hist.estado == 'corriendo' %}⏳ Bajando…{% elif ocupado %}🔒 Ocupado: otro proceso está actualizando el histórico{% else %}⬇ Actualizar la cola del histórico{% endif %}</button>
+      <p class="registro{{ ' rojo' if trabajo_hist and trabajo_hist.estado == 'error' }}" id="registro-hist">{% if trabajo_hist and trabajo_hist.log %}{{ trabajo_hist.log[-4:]|join('\n') }}{% endif %}</p>
+    </form>
+    <p class="nota">Para años de velas de 1 minuto importa el CSV trimestral de Kraken: <code>python app.py historico importar &lt;ruta&gt;</code> (ver README). Aquí solo se baja la cola reciente (unos minutos).</p>
+  </div>
+
+  <div class="caja" id="encargar">
+    <h2>🧪 Encargar backtest</h2>
+    <form class="form-bt" method="post" action="{{ url_for('encargar_backtest') }}" id="form-backtest"><input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <div class="ancho"><label for="b-estrategia">Estrategia</label>
+        <select name="estrategia" id="b-estrategia">{% for e in estrategias %}<option value="{{ e.id }}">{{ e.titulo }} · {{ e.marco }} min · {{ e.descripcion }}</option>{% endfor %}</select></div>
+      <div><label for="b-par">Par</label><select name="par" id="b-par">{% for p in pares %}<option value="{{ p }}">{{ p }}</option>{% endfor %}</select></div>
+      <div><label for="b-desde">Desde</label><input type="date" name="desde" id="b-desde" placeholder="AAAA-MM-DD"></div>
+      <div><label for="b-hasta">Hasta</label><input type="date" name="hasta" id="b-hasta" placeholder="AAAA-MM-DD"></div>
+      <div><button id="btn-bt" {{ 'disabled' if trabajo and trabajo.estado == 'corriendo' }}>{{ '⏳ Probando…' if trabajo and trabajo.estado == 'corriendo' else '🧪 Probar la estrategia' }}</button></div>
+      <div class="ancho"><small class="nota" id="rango-hint" style="margin:0"></small></div>
+    </form>
+    <div id="trabajo"><p class="registro{{ ' rojo' if trabajo and trabajo.estado == 'error' }}" id="registro-bt">{% if trabajo and trabajo.log %}{{ trabajo.log[-6:]|join('\n') }}{% endif %}</p></div>
+    <p class="nota">Calculado con comisión taker {{ '%g'|format(cfg_bt.comision_pct)|replace('.', ',') }} % por lado, deslizamiento {{ '%g'|format(cfg_bt.deslizamiento_pct)|replace('.', ',') }} % ({{ '%g'|format(cfg_bt.deslizamiento_stop_pct)|replace('.', ',') }} % en stops) y {{ cfg_bt.semillas_azar_panel }} entradas aleatorias de contraste ({{ cfg_bt.semillas_azar }} desde la terminal). Cámbialo en <code>config.yaml → backtest</code>. Un backtest tarda entre segundos y varios minutos.</p>
+  </div>
+</div>
+
+<div class="caja" id="resultados">
+  <h2>📋 Resultados</h2>
+  <div class="desplaza"><table class="cal" id="tabla-resultados">
+    <thead><tr><th>Fecha</th><th>Estrategia</th><th>Par</th><th class="num">Marco</th><th>Fuera de muestra</th><th class="num">Vent.</th><th class="num">n</th><th class="num">E (R)</th><th class="num">E (%)</th><th class="num">PF</th><th class="num">MDD %</th><th class="num">Sharpe</th><th class="num">p azar</th><th>Veredicto</th></tr></thead>
+    <tbody>
+    {% for r in indice %}
+      <tr class="fila{{ ' elegida' if loop.first }}" data-id="{{ r.id }}" title="{{ r.veredicto.texto }}"><td style="white-space:nowrap">{{ r.fecha }}</td><td>{{ r.titulo }}</td><td>{{ r.nombre_par }}</td><td class="num">{{ r.marco }} min</td>
+          <td style="white-space:nowrap">{{ r.oos_desde }} → {{ r.oos_hasta }}</td><td class="num">{{ r.ventanas }}</td><td class="num">{{ r.n }}</td>
+          <td class="num">{{ num(r.expectativa_R, 2, true) }}</td><td class="num">{{ num(r.expectativa_pct, 2, true) }}</td><td class="num">{{ num(r.profit_factor, 2) }}</td>
+          <td class="num">{{ num(r.max_drawdown_pct, 1) }}</td><td class="num">{{ num(r.sharpe_diario, 2) }}</td><td class="num">{{ num(r.p_azar, 4) }}</td>
+          <td><span class="{{ CLASE.get(r.veredicto.clave, 'chip gris') }}">{{ ETIQUETA.get(r.veredicto.clave, r.veredicto.clave) }}</span></td></tr>
+    {% else %}<tr><td colspan="14" class="sub" style="margin:0">Ninguno todavía: encarga el primero arriba o ejecuta <code>python app.py backtest rotura_dia</code>.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  <p class="nota">Llevas <b id="pruebas-total">{{ pruebas_total }}</b> backtests. De 20 estrategias sin ventaja real, una pasaría las puertas por puro azar: exige que una estrategia pase en los dos pares y con otro tamaño de ventana antes de creértela.</p>
+</div>
+
+<div class="caja" id="veredicto">
+  <h2>⚖️ Veredicto</h2>
+  <div id="veredicto-detalle"><p class="sub" style="margin:0 0 12px">{% if ultimo %}Cargando el último backtest…{% else %}Todavía no hay ningún backtest que juzgar.{% endif %}</p></div>
+  <p class="sub" id="aviso-honesto" style="margin:16px 0 0">{{ aviso }}</p>
+</div>
+
+<div class="caja curva-caja" id="curva-caja">
+  <h2>📈 Curva</h2>
+  <canvas id="curva" width="1100" height="360"></canvas>
+  <p class="nota" id="curva-leyenda">Estrategia (verde si acaba por encima del capital inicial, rojo si no) · comprar y mantener (gris punteado) · comprar y mantener al 30 % (gris fino) · banda roja: caída desde el máximo · líneas verticales: ventanas fuera de muestra.</p>
+</div>
+
+<div class="dos">
+  <div class="caja" id="ventanas">
+    <h2>🪟 Ventanas</h2>
+    <div class="desplaza"><table class="cal" id="tabla-ventanas">
+      <thead><tr><th class="num">k</th><th>Dentro de muestra</th><th>Parámetros</th><th class="num">n IS</th><th class="num">E_R IS</th><th>Fuera de muestra</th><th class="num">n OOS</th><th class="num">E_R OOS</th><th class="num">pnl OOS</th></tr></thead>
+      <tbody><tr><td colspan="9" class="sub" style="margin:0">—</td></tr></tbody>
+    </table></div>
+  </div>
+  <div class="caja" id="operaciones">
+    <h2>🧾 Operaciones</h2>
+    <div class="desplaza"><table class="cal" id="tabla-operaciones">
+      <thead><tr><th>Entrada</th><th class="num">Precio</th><th class="num">Stop</th><th class="num">Salida</th><th>Motivo</th><th class="num">R</th><th class="num">pnl €</th></tr></thead>
+      <tbody><tr><td colspan="7" class="sub" style="margin:0">—</td></tr></tbody>
+    </table></div>
+    <p class="nota" id="operaciones-total"></p>
+  </div>
+</div>
+
+<p class="aviso-legal">Simulación · datos públicos · sin dinero real.</p>
+
+<script>
+const CSRF = {{ csrf_token|tojson }};
+const PARES = {{ pares|tojson }};
+const ETIQUETA = {{ ETIQUETA|tojson }}, CLASE = {{ CLASE|tojson }}, INTERVALOS = {{ INTERVALOS|tojson }};
+const VERDE = '#4cc38a', ROJO = '#f08a80', GRIS = '#8f98a6', CLARO = '#e6eaf1';
+let historico = {{ historico|tojson }}, indice = {{ indice|tojson }}, ultimo = {{ ultimo|tojson }};
+let estadoPrevio = {trabajo: {{ (trabajo.estado if trabajo else none)|tojson }}, hist: {{ (trabajo_hist.estado if trabajo_hist else none)|tojson }}};
+let idElegido = ultimo ? ultimo.id : null, temporizador = null;
+
+function escapar(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
+function fmt(x, d = 2, signo = false) {
+  if (x == null || Number.isNaN(Number(x))) return '—';
+  const s = Number(x).toFixed(d).replace('.', ',');
+  return signo && Number(x) >= 0 ? '+' + s : s;
+}
+const miles = n => n == null ? '—' : Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+const fechaHora = ts => ts ? new Date(ts * 1000).toLocaleString('es-ES', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}) : '—';
+const fechaCorta = ts => ts ? new Date(ts * 1000).toLocaleDateString('es-ES', {day: '2-digit', month: '2-digit', year: 'numeric'}) : '';
+const chip = v => `<span class="${CLASE[v.clave] || 'chip gris'}" title="${escapar(v.texto || '')}">${escapar(ETIQUETA[v.clave] || v.clave)}</span>`;
+const parametros = p => Object.entries(p || {}).map(([k, v]) => `${escapar(k)} ${escapar(Array.isArray(v) ? v.join('/') : (typeof v === 'number' ? fmt(v, Number.isInteger(v) ? 0 : 2) : v))}`).join(' · ') || '—';
+
+// ---------- the tables that come from /backtest/estado ----------
+
+function pintarDatos(h) {
+  const filas = [];
+  for (const par of PARES) {
+    const ivs = Object.keys(h[par] || {}).sort((a, b) => Number(a) - Number(b));
+    for (const iv of ivs) {
+      const d = h[par][iv];
+      filas.push(`<tr><td><b>${escapar(par)}</b></td><td>${escapar(INTERVALOS[iv] || iv + ' min')}</td><td>${escapar(d.desde)} – ${escapar(d.hasta)}</td>
+        <td class="num">${miles(d.velas)}</td><td class="num">${escapar(d.huecos_largos)}</td><td>${fechaHora(d.actualizado)}</td></tr>`);
+    }
+  }
+  document.querySelector('#tabla-datos tbody').innerHTML = filas.join('') || '<tr><td colspan="6" class="sub" style="margin:0">Todavía no hay histórico: ejecuta <code>python app.py historico</code> en el PC.</td></tr>';
+  rangoHint();
+}
+function rangoHint() {
+  // the 1-min range of the chosen pair, as a hint under the date inputs (the strategies resample from it)
+  const par = document.getElementById('b-par').value, d = ((historico[par] || {})['1']) || null;
+  document.getElementById('rango-hint').textContent = d ? `Rango disponible para ${par}: ${d.desde} → ${d.hasta} (vacío = todo).` : `Sin histórico de 1 min para ${par}.`;
+}
+function pintarIndice(lista) {
+  const filas = lista.map(r => `<tr class="fila${r.id === idElegido ? ' elegida' : ''}" data-id="${escapar(r.id)}" title="${escapar(r.veredicto.texto || '')}"><td style="white-space:nowrap">${escapar(r.fecha)}</td><td>${escapar(r.titulo)}</td><td>${escapar(r.nombre_par)}</td><td class="num">${escapar(r.marco)} min</td>
+    <td style="white-space:nowrap">${escapar(r.oos_desde)} → ${escapar(r.oos_hasta)}</td><td class="num">${escapar(r.ventanas)}</td><td class="num">${escapar(r.n)}</td>
+    <td class="num">${fmt(r.expectativa_R, 2, true)}</td><td class="num">${fmt(r.expectativa_pct, 2, true)}</td><td class="num">${fmt(r.profit_factor, 2)}</td>
+    <td class="num">${fmt(r.max_drawdown_pct, 1)}</td><td class="num">${fmt(r.sharpe_diario, 2)}</td><td class="num">${fmt(r.p_azar, 4)}</td><td>${chip(r.veredicto)}</td></tr>`);
+  document.querySelector('#tabla-resultados tbody').innerHTML = filas.join('') || '<tr><td colspan="14" class="sub" style="margin:0">Ninguno todavía: encarga el primero arriba o ejecuta <code>python app.py backtest rotura_dia</code>.</td></tr>';
+}
+function pintarEstado(r) {
+  const bt = r.trabajo, hist = r.trabajo_hist;
+  const regBt = document.getElementById('registro-bt');
+  regBt.textContent = bt && bt.log ? bt.log.slice(-6).join('\n') : '';
+  regBt.className = 'registro' + (bt && bt.estado === 'error' ? ' rojo' : '');
+  const regH = document.getElementById('registro-hist');
+  regH.textContent = hist && hist.log ? hist.log.slice(-4).join('\n') : '';
+  regH.className = 'registro' + (hist && hist.estado === 'error' ? ' rojo' : '');
+  const btnBt = document.getElementById('btn-bt'), corriendoBt = !!(bt && bt.estado === 'corriendo');
+  btnBt.disabled = corriendoBt; btnBt.textContent = corriendoBt ? '⏳ Probando…' : '🧪 Probar la estrategia';
+  const btnH = document.getElementById('btn-hist'), corriendoH = !!(hist && hist.estado === 'corriendo');
+  btnH.disabled = corriendoH || !!r.ocupado;
+  btnH.textContent = corriendoH ? '⏳ Bajando…' : (r.ocupado ? '🔒 Ocupado: otro proceso está actualizando el histórico' : '⬇ Actualizar la cola del histórico');
+  if (r.indice) { indice = r.indice; pintarIndice(indice); }
+  if (r.historico) { historico = r.historico; pintarDatos(historico); }
+  if (r.pruebas_total != null) document.getElementById('pruebas-total').textContent = r.pruebas_total;
+  // a backtest that just finished: show it
+  if (estadoPrevio.trabajo === 'corriendo' && bt && bt.estado === 'ok' && bt.id) detalle(bt.id);
+  estadoPrevio = {trabajo: bt ? bt.estado : null, hist: hist ? hist.estado : null};
+  programar(corriendoBt || corriendoH);
+}
+function programar(ocupadoAlgo) {
+  clearTimeout(temporizador);
+  temporizador = setTimeout(refrescar, ocupadoAlgo ? 5000 : 60000);
+}
+async function refrescar() {
+  try { pintarEstado(await (await fetch('/backtest/estado')).json()); }
+  catch (e) { programar(false); }
+}
+
+// ---------- one result ----------
+
+async function detalle(id) {
+  try {
+    const r = await fetch('/backtest/' + encodeURIComponent(id) + '.json');
+    if (!r.ok) return;
+    ultimo = await r.json(); idElegido = ultimo.id;
+    pintarIndice(indice); pintarDetalle(ultimo);
+  } catch (e) {}
+}
+function pintarDetalle(res) {
+  const v = res.veredicto || (res.oos || {}).veredicto || {clave: 'insuficiente', texto: 'INSUFICIENTE'};
+  const oos = res.oos || {}, m = oos.metricas || {}, ref = res.referencias || {}, bh = ref.comprar_y_mantener || {}, bh30 = ref.comprar_y_mantener_30 || {}, az = ref.azar || {};
+  const puertas = Object.entries(oos.puertas || {});
+  let html = `<p class="veredicto-titulo ${escapar(v.clave)}">${escapar(v.texto)}</p>
+    <p class="sub" style="margin:0 0 8px">${escapar(res.titulo)} · ${escapar(res.nombre_par)} · ${escapar(res.marco)} min · fuera de muestra ${escapar(oos.desde || res.desde || '')} → ${escapar(oos.hasta || res.hasta || '')} · ${(res.ventanas || []).length} ventanas · día ${escapar(res.dia || '')}${res.tz ? ' (' + escapar(res.tz) + ')' : ''}</p>`;
+  if (puertas.length) html += `<ul class="puertas">${puertas.map(([k, p]) => `<li><span class="${p.ok ? 'si' : 'no'}">${p.ok ? '✓' : '✗'}</span><span>${escapar(p.texto)}</span></li>`).join('')}</ul>`;
+  else if (v.motivos && v.motivos.length) html += `<ul class="puertas">${v.motivos.map(t => `<li><span class="no">✗</span><span>${escapar(t)}</span></li>`).join('')}</ul>`;
+  if (oos.avisos && oos.avisos.length) html += `<ul class="avisos">${oos.avisos.map(a => `<li>${escapar(a)}</li>`).join('')}</ul>`;
+  const fila = (nombre, a, b, c, d) => `<tr><th>${nombre}</th><td class="num">${a}</td><td class="num">${b}</td><td class="num">${c}</td><td class="num">${d}</td></tr>`;
+  html += `<div class="desplaza"><table class="cal"><thead><tr><th></th><th class="num">Estrategia</th><th class="num">Comprar y mantener</th><th class="num">Al 30 %</th><th class="num">Azar (mediana / p95)</th></tr></thead><tbody>`
+    + fila('Rentabilidad', fmt(m.rentabilidad_neta_pct, 1, true) + ' %', fmt(bh.rentabilidad_neta_pct, 1, true) + ' %', fmt(bh30.rentabilidad_neta_pct, 1, true) + ' %', az.rentabilidad_pct ? fmt(az.rentabilidad_pct.p50, 1, true) + ' % / ' + fmt(az.rentabilidad_pct.p95, 1, true) + ' %' : '—')
+    + fila('Drawdown máximo', fmt(m.max_drawdown_pct, 1) + ' %', fmt(bh.max_drawdown_pct, 1) + ' %', fmt(bh30.max_drawdown_pct, 1) + ' %', '—')
+    + fila('Sharpe diario', fmt(m.sharpe_diario, 2), fmt(bh.sharpe_diario, 2), '—', '—')
+    + fila('Expectativa (R)', fmt(m.expectativa_R, 2, true), '—', '—', az.expectativa_R ? fmt(az.expectativa_R.p50, 2, true) + ' / ' + fmt(az.expectativa_R.p95, 2, true) : '—')
+    + fila('Operaciones', m.n == null ? '—' : m.n, '1', '1', az.n_ops == null ? '—' : az.n_ops + ' × ' + (az.semillas || 0) + ' semillas')
+    + `</tbody></table></div>`;
+  const isT = res.is_total || {};
+  if (isT.n) html += `<p class="linea">Dentro de muestra prometía <b>${fmt(isT.expectativa_R, 2, true)} R</b>; fuera dio <b>${fmt(m.expectativa_R, 2, true)} R</b>.</p>`;
+  const c = res.costes || {};
+  if (c.comisiones != null) html += `<p class="linea">Lo que se llevaron los costes: <b>${fmt(c.comisiones, 0)} €</b> en comisiones y <b>${fmt(c.deslizamiento, 0)} €</b> en deslizamiento (taker ${fmt(c.comision_pct, 2)} %, deslizamiento ${fmt(c.deslizamiento_pct, 2)} %).</p>`;
+  if (res.intentos_previos > 0) html += `<p class="linea" style="color:var(--aviso)">Van ${res.intentos_previos} backtests anteriores de esta estrategia y par.</p>`;
+  if (az.semillas) html += `<p class="nota">El contraste de azar mide si las <b>entradas</b> aportan algo: ${az.semillas} series de ${az.n_ops} entradas al azar con la misma salida (stop ${fmt(az.stop_pct, 2)} %, ${az.barras} barras) y los mismos costes.</p>`;
+  document.getElementById('veredicto-detalle').innerHTML = html;
+  // windows
+  const vt = (res.ventanas || []).map(w => `<tr><td class="num">${w.k}</td><td style="white-space:nowrap">${escapar((w.is_fechas || [])[0] || '')} – ${escapar((w.is_fechas || [])[1] || '')}</td>
+    <td>${parametros(w.parametros)}${w.por_defecto ? '<span class="chip gris pd">por defecto</span>' : ''}</td><td class="num">${(w.is_m || {}).n ?? '—'}</td><td class="num">${fmt((w.is_m || {}).expectativa_R, 2, true)}</td>
+    <td style="white-space:nowrap">${escapar((w.oos_fechas || [])[0] || '')} – ${escapar((w.oos_fechas || [])[1] || '')}</td><td class="num">${(w.oos_m || {}).n ?? '—'}</td><td class="num">${fmt((w.oos_m || {}).expectativa_R, 2, true)}</td>
+    <td class="num ${((w.oos_m || {}).pnl || 0) >= 0 ? 'sube' : 'baja'}">${fmt((w.oos_m || {}).pnl, 0, true)} €</td></tr>`);
+  document.querySelector('#tabla-ventanas tbody').innerHTML = vt.join('') || '<tr><td colspan="9" class="sub" style="margin:0">Sin ventanas (INSUFICIENTE).</td></tr>';
+  // trades: the last 50
+  const ops = (res.operaciones || []).slice(-50).reverse();
+  document.querySelector('#tabla-operaciones tbody').innerHTML = ops.map(o => `<tr><td style="white-space:nowrap">${escapar(o.fecha_entrada)}</td><td class="num">${fmt(o.entrada, 2)}</td><td class="num">${fmt(o.stop, 2)}</td><td class="num">${fmt(o.salida, 2)}</td><td>${escapar(o.motivo)}</td>
+    <td class="num ${(o.R || 0) >= 0 ? 'sube' : 'baja'}">${fmt(o.R, 2, true)}</td><td class="num ${(o.pnl || 0) >= 0 ? 'sube' : 'baja'}">${fmt(o.pnl, 2, true)}</td></tr>`).join('')
+    || '<tr><td colspan="7" class="sub" style="margin:0">Ninguna operación.</td></tr>';
+  document.getElementById('operaciones-total').textContent = `${res.operaciones_total ?? (res.operaciones || []).length} en total${res.operaciones_truncadas ? ' (guardadas las primeras ' + (res.operaciones || []).length + ')' : ''}.`;
+  curvaEquity(document.getElementById('curva'), res.curva || [], res.curva_bh || [], res.curva_bh_30 || [], res.ventanas || [], (res.cfg || {}).capital_inicial || 10000);
+}
+
+// ---------- the equity curve, drawn by hand ----------
+
+function curvaEquity(canvas, curva, curvaBH, curvaBH30, ventanas, capitalInicial) {
+  const W = 1100, H = 360, dpr = window.devicePixelRatio || 1;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#0a0d12'; ctx.fillRect(0, 0, W, H);
+  const ML = 70, MR = 16, MT = 18, MB = 34, w = W - ML - MR, h = H - MT - MB;
+  ctx.strokeStyle = 'rgba(120,140,160,.18)'; ctx.lineWidth = 0.5;
+  for (let k = 1; k < 4; k++) { ctx.beginPath(); ctx.moveTo(ML, MT + h * k / 4); ctx.lineTo(ML + w, MT + h * k / 4); ctx.stroke(); }
+  const texto = (s, x, y, fuente, color, alinear = 'left') => { ctx.font = fuente; ctx.fillStyle = color; ctx.textAlign = alinear; ctx.fillText(s, x, y); ctx.textAlign = 'left'; };
+  if (!curva || curva.length < 2) { texto('Sin curva: encarga un backtest o pulsa una fila de resultados.', ML, MT + h / 2, '600 14px Inter, sans-serif', GRIS); return; }
+  const todas = [curva, curvaBH, curvaBH30].filter(c => c && c.length);
+  const tmin = Math.min(...todas.map(c => c[0][0])), tmax = Math.max(...todas.map(c => c[c.length - 1][0]), tmin + 1);
+  let vmin = Infinity, vmax = -Infinity;
+  for (const c of todas) for (const p of c) { if (p[1] < vmin) vmin = p[1]; if (p[1] > vmax) vmax = p[1]; }
+  vmin = Math.min(vmin, capitalInicial); vmax = Math.max(vmax, capitalInicial, vmin + 1e-9);
+  const X = t => ML + w * (t - tmin) / (tmax - tmin), Y = v => MT + h - h * (v - vmin) / (vmax - vmin);
+  // OOS window limits
+  ctx.strokeStyle = 'rgba(143,152,166,.35)'; ctx.lineWidth = 0.8;
+  for (const win of ventanas) {
+    const x = X(win.oos[0]); ctx.beginPath(); ctx.moveTo(x, MT); ctx.lineTo(x, MT + h); ctx.stroke();
+    texto(String(win.k), x + 3, MT + 10, '600 9px Inter, sans-serif', GRIS);
+  }
+  // drawdown band: between the running peak and the equity
+  ctx.fillStyle = 'rgba(255,107,122,.12)'; ctx.beginPath();
+  let pico = -Infinity;
+  curva.forEach((p, k) => { pico = Math.max(pico, p[1]); k ? ctx.lineTo(X(p[0]), Y(pico)) : ctx.moveTo(X(p[0]), Y(pico)); });
+  for (let k = curva.length - 1; k >= 0; k--) ctx.lineTo(X(curva[k][0]), Y(curva[k][1]));
+  ctx.closePath(); ctx.fill();
+  const linea = (c, color, ancho, guiones) => {
+    if (!c || c.length < 2) return;
+    ctx.strokeStyle = color; ctx.lineWidth = ancho; ctx.setLineDash(guiones || []); ctx.beginPath();
+    c.forEach((p, k) => k ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1])));
+    ctx.stroke(); ctx.setLineDash([]);
+  };
+  linea(curvaBH, GRIS, 1, [4, 4]);
+  linea(curvaBH30, GRIS, 0.7);
+  // capital inicial reference
+  ctx.strokeStyle = 'rgba(230,234,241,.25)'; ctx.lineWidth = 0.6; ctx.setLineDash([2, 4]); ctx.beginPath(); ctx.moveTo(ML, Y(capitalInicial)); ctx.lineTo(ML + w, Y(capitalInicial)); ctx.stroke(); ctx.setLineDash([]);
+  const final = curva[curva.length - 1][1], sube = final >= capitalInicial;
+  linea(curva, sube ? VERDE : ROJO, 1.4);
+  texto(miles(capitalInicial) + ' €', ML - 6, Y(capitalInicial) + 4, '600 11px Inter, sans-serif', GRIS, 'right');
+  texto(miles(vmax) + ' €', ML - 6, MT + 10, '500 10px Inter, sans-serif', GRIS, 'right');
+  texto(miles(vmin) + ' €', ML - 6, MT + h, '500 10px Inter, sans-serif', GRIS, 'right');
+  texto(miles(final) + ' €', ML + w - 4, Math.max(MT + 12, Math.min(MT + h - 4, Y(final) - 6)), '700 12px "Space Grotesk", sans-serif', sube ? VERDE : ROJO, 'right');
+  texto(fechaCorta(tmin), ML, H - 10, '500 11px Inter, sans-serif', GRIS);
+  texto(fechaCorta(tmax), ML + w, H - 10, '500 11px Inter, sans-serif', GRIS, 'right');
+  const bhFinal = curvaBH && curvaBH.length ? curvaBH[curvaBH.length - 1][1] : null;
+  if (bhFinal != null) texto('comprar y mantener ' + miles(bhFinal) + ' €', ML + w - 4, Math.max(MT + 26, Math.min(MT + h - 4, Y(bhFinal) + 12)), '500 10px Inter, sans-serif', GRIS, 'right');
+}
+
+// ---------- forms, progressive enhancement like the journal ----------
+
+async function enviar(form) {
+  const datos = new FormData(form); datos.append('ajax', '1');
+  let r, res = {};
+  try { r = await fetch(form.action, {method: 'POST', body: datos}); res = await r.json(); } catch (e) {}
+  if (!r || !r.ok || !res.ok) { alert(res.error || 'No se pudo encargar. Recarga la página (F5) y repite.'); return; }
+  if (form.id === 'form-backtest') estadoPrevio.trabajo = 'corriendo';   // so the first poll that sees it finished opens the result
+  refrescar();
+}
+document.getElementById('form-backtest').addEventListener('submit', ev => { ev.preventDefault(); enviar(ev.target); });
+document.getElementById('form-historico').addEventListener('submit', ev => { ev.preventDefault(); enviar(ev.target); });
+document.getElementById('b-par').addEventListener('change', rangoHint);
+document.getElementById('tabla-resultados').addEventListener('click', ev => {
+  const fila = ev.target.closest('tr.fila'); if (fila && fila.dataset.id) detalle(fila.dataset.id);
+});
+
+pintarDatos(historico);
+if (ultimo) pintarDetalle(ultimo); else curvaEquity(document.getElementById('curva'), [], [], [], [], 10000);
+programar(estadoPrevio.trabajo === 'corriendo' || estadoPrevio.hist === 'corriendo');
+</script>
+{% endblock %}
