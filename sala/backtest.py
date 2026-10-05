@@ -735,14 +735,21 @@ def avisos(res, cfg):
 # ---------- files (§6.13) ----------
 
 def submuestrear(curva, n=PUNTOS_CURVA):
-    """At most ~n points, always keeping the first and the last."""
+    """Como mucho ~n puntos (paso = ceil(len/n)) conservando el primero y el último; no transforma los elementos."""
+    curva = list(curva)
     if len(curva) <= n:
-        return [[t, round(e, 2)] for t, e in curva]
+        return curva
     paso = math.ceil(len(curva) / n)
-    salida = [[t, round(e, 2)] for t, e in curva[::paso]]
-    if salida[-1][0] != curva[-1][0]:
-        salida.append([curva[-1][0], round(curva[-1][1], 2)])
+    salida = curva[::paso]
+    # the slice ends on the last element only when len - 1 is a multiple of the step
+    if (len(curva) - 1) % paso != 0:
+        salida.append(curva[-1])
     return salida
+
+
+def _curva_json(curva, n=PUNTOS_CURVA):
+    """La curva [t, equity] submuestreada y con los euros a 2 decimales (§2.4), lista para el JSON."""
+    return [[t, round(e, 2)] for t, e in submuestrear(curva, n)]
 
 
 def _ruta_indice():
@@ -907,7 +914,7 @@ def correr(estrategia, par, desde=None, hasta=None, avisar=print, cfg=None, ahor
         "ventanas": wf["ventanas"],
         "oos": {"metricas": m, "puertas": {}, "veredicto": {}, "avisos": [], "desde": oos_desde, "hasta": oos_hasta},
         "is_total": wf["is_total"], "referencias": referencias,
-        "curva": submuestrear(curva), "curva_bh": submuestrear(curva_bh), "curva_bh_30": submuestrear(curva_bh_30),
+        "curva": _curva_json(curva), "curva_bh": _curva_json(curva_bh), "curva_bh_30": _curva_json(curva_bh_30),
         "costes": {"comisiones": round(wf["comisiones"], 2), "deslizamiento": round(wf["deslizamiento"], 2),
                    "comision_pct": cfg["comision_pct"], "deslizamiento_pct": cfg["deslizamiento_pct"],
                    "deslizamiento_stop_pct": cfg["deslizamiento_stop_pct"]},

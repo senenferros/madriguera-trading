@@ -466,17 +466,25 @@ def prueba_historico_fuentes():
     r = historico.actualizar("XBTEUR", intervalos=[1], dias=0, avisar=log.append, ahora=AHORA)
     ok(not r["XBTEUR"].get("ocupado") and not r["XBTEUR"].get("error"), "bloqueo: con latido de hace 10 min procede")
     ok(not ocupado.exists(), "bloqueo: al terminar no queda ocupado.json")
+    # one writer per pair ACROSS processes (§4.7); inside the process the lock is reentrant, because actualizar()
+    # holds it while it calls rellenar_con_trades(), which takes it as well
+    with historico.ocupar("XBTEUR"):
+        ok(ocupado.exists(), "ocupar escribe ocupado.json")
+        try:
+            with historico.ocupar("XBTEUR"):
+                ok(ocupado.exists(), "ocupar anidado en el mismo proceso: permitido (actualizar envuelve a rellenar_con_trades)")
+            ok(ocupado.exists(), "ocupar anidado: al salir el interior el bloqueo sigue vivo")
+        except historico.Ocupado:
+            ok(False, "ocupar anidado en el mismo proceso: permitido (actualizar envuelve a rellenar_con_trades)")
+    ok(not ocupado.exists(), "ocupar borra el bloqueo al salir")
+    mercado._escribir_json(ocupado, {"pid": 99999, "inicio": time.time(), "latido": time.time()})
     try:
         with historico.ocupar("XBTEUR"):
-            ok(ocupado.exists(), "ocupar escribe ocupado.json")
-            try:
-                with historico.ocupar("XBTEUR"):
-                    ok(False, "ocupar anidado -> Ocupado")
-            except historico.Ocupado:
-                ok(True, "ocupar anidado -> Ocupado")
-    finally:
-        pass
-    ok(not ocupado.exists(), "ocupar borra el bloqueo al salir")
+            ok(False, "ocupar con bloqueo ajeno vivo -> Ocupado")
+    except historico.Ocupado as err:
+        ok("99999" in str(err) and str(ocupado) in str(err), "ocupar con bloqueo ajeno vivo -> Ocupado (con pid y ruta)")
+    ok(ocupado.exists(), "ocupar no borra el bloqueo ajeno")
+    ocupado.unlink()
 
     # validar on a clean pair: 3 h of 1 min + native 60m equal to its resampling, plus the watcher's candles
     t_v = (AHORA - 3 * 86400) // 3600 * 3600
@@ -563,30 +571,31 @@ def prueba_motor():
     ok(backtest.tamano(10000, 10000, 100, 99.5, cfg_bt(minimo_orden_eur=5000))[3] == "minimo", "tamano: bajo el mínimo de orden -> 'minimo'")
     ok(backtest.tamano(10000, 10000, 100, None, CFG)[3] == "sin_stop" and backtest.tamano(10000, 10000, 100, 100.2, CFG)[3] == "stop_alto", "tamano: motivos sin_stop y stop_alto")
 
-    # rule 3: five -1R stops in one UTC day: the fifth does not run, the next day does
-    dia = [barra(k, 100, 101, 98.5, 100) for k in range(30)]
-    ordenes = {k: {"accion": "comprar", "stop": 99} for k in (0, 1, 2, 3, 4, 24)}
+    # rule 3: five -1R stops in one UTC day: the fifth does not run, the next day does. The stop sits 5 % below the
+    # open (like the §6.5 worked example) so the 30 % cap of rule 5 does not bind and -1R is exactly -1 % of capital
+    dia = [barra(k, 100, 101, 94, 100) for k in range(30)]
+    ordenes = {k: {"accion": "comprar", "stop": 95} for k in (0, 1, 2, 3, 4, 24)}
     r = backtest.simular(dia, fija(ordenes), {}, CFG)
     ops = r["operaciones"]
     ok(len(ops) == 5 and [o["entrada_i"] for o in ops] == [1, 2, 3, 4, 25], f"regla 3: 4 operaciones el primer día, la 5.ª no, la del día siguiente sí ({[o['entrada_i'] for o in ops]})")
     ok(r["paradas_dia"] == 1 and cerca(ops[3]["capital_antes"] * 0.99, 10000 * 0.99 ** 4, 0.01), "regla 3: una parada del día tras -3,94 %")
-    ordenes = {0: {"accion": "comprar", "stop": 99}, 1: {"accion": "comprar", "stop": 99}, 2: {"accion": "comprar", "stop": 99}, 3: {"accion": "comprar", "stop": 96}}
-    velas = [barra(k, 100, 101, 98.5, 100) for k in range(4)] + [barra(4, 100, 100.5, 97.5, 98), barra(5, 98, 99, 97, 98), barra(6, 98, 99, 97, 98)]
+    ordenes = {0: {"accion": "comprar", "stop": 95}, 1: {"accion": "comprar", "stop": 95}, 2: {"accion": "comprar", "stop": 95}, 3: {"accion": "comprar", "stop": 96}}
+    velas = [barra(k, 100, 101, 94, 100) for k in range(4)] + [barra(4, 100, 100.5, 97.5, 98), barra(5, 98, 99, 97, 98), barra(6, 98, 99, 97, 98)]
     r = backtest.simular(velas, fija(ordenes), {}, CFG)
     ops = r["operaciones"]
     ok(len(ops) == 4 and ops[3]["motivo"] == "parada_dia" and ops[3]["salida_i"] == 5 and cerca(ops[3]["salida"], 98 * 0.9995, 1e-9), "regla 3: con posición abierta se cierra al open siguiente con motivo parada_dia")
 
     # rule 4: -1R a day for 14 days with the daily stop disabled: the 13th trips the -12 % switch
     cfg4 = cfg_bt(parada_dia_pct=100)
-    velas = [barra(k, 100, 101, 98.5, 100) for k in range(24 * 14 + 3)]
-    ordenes = {24 * d: {"accion": "comprar", "stop": 99} for d in range(14)}
+    velas = [barra(k, 100, 101, 94, 100) for k in range(24 * 14 + 3)]
+    ordenes = {24 * d: {"accion": "comprar", "stop": 95} for d in range(14)}
     r = backtest.simular(velas, fija(ordenes), {}, cfg4)
     ok(len(r["operaciones"]) == 13 and r["apagones"] == 1, f"regla 4: 13 operaciones y apagado (0,99^13 = 12,25 % de caída) ({len(r['operaciones'])})")
     ok(cerca(r["capital_final"], 10000 * 0.99 ** 13, 0.01) and r["estado"]["apagado"] is True, "regla 4: capital final 8.775 y estado apagado")
     r2 = backtest.simular(velas, fija(ordenes), {}, cfg4, estado=r["estado"])
     ok(r2["operaciones"] == [] and r2["estado"]["apagado"] is True, "regla 4: con el estado apagado arrastrado no entra ninguna orden")
-    velas = [barra(k, 100, 101, 98.5, 100) for k in range(24 * 12 + 1)] + [barra(24 * 12 + 1, 100, 100.5, 90.2, 90.5), barra(24 * 12 + 2, 90.5, 91, 90, 90.5), barra(24 * 12 + 3, 90.5, 91, 90, 90.5)]
-    ordenes = {24 * d: {"accion": "comprar", "stop": 99} for d in range(12)}
+    velas = [barra(k, 100, 101, 94, 100) for k in range(24 * 12 + 1)] + [barra(24 * 12 + 1, 100, 100.5, 90.2, 90.5), barra(24 * 12 + 2, 90.5, 91, 90, 90.5), barra(24 * 12 + 3, 90.5, 91, 90, 90.5)]
+    ordenes = {24 * d: {"accion": "comprar", "stop": 95} for d in range(12)}
     ordenes[24 * 12] = {"accion": "comprar", "stop": 90}
     r = backtest.simular(velas, fija(ordenes), {}, cfg4)
     ok(len(r["operaciones"]) == 13 and r["operaciones"][-1]["motivo"] == "apagado" and r["apagones"] == 1, "regla 4: con posición abierta al apagarse -> motivo apagado")
@@ -766,6 +775,12 @@ def prueba_estrategias():
         v[4] = round(v[1] + 0.5, 6)
         v[2] = max(v[2], v[4])
         v[5] = 20.0
+        # keep the series coherent: the next bar opens at the new close (a gap back down would put the entry
+        # within stop_min_pct of the stop at the pico's low and the engine would rightly reject it as stop_alto)
+        sig = plana5[i + 1]
+        sig[1] = v[4]
+        sig[2] = max(sig[2], sig[1])
+        sig[3] = min(sig[3], sig[1])
     r = backtest.simular(plana5, pv, pv.defecto, CFG)
     ok([o["entrada_t"] for o in r["operaciones"]] == [plana5[i + 1][0] for i in picos], f"pico_volumen: entra en la barra siguiente a cada pico ({len(r['operaciones'])} op)")
     ctx = pv.preparar(plana5, pv.defecto, "utc")
