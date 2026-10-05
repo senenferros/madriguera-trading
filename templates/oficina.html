@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block titulo %}Oficina · {{ nombre_sala }}{% endblock %}
+{% block cabeza %}
+<style>
+  .escena { background: linear-gradient(180deg, var(--panel2), var(--panel)); border: 1px solid var(--borde); border-radius: 16px; box-shadow: var(--sombra); padding: 10px; margin: 16px 0 20px; }
+  .escena canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
+  .hud { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .hud .dep { background: linear-gradient(180deg, var(--panel2), var(--panel)); border: 1px solid var(--borde); border-radius: 14px; padding: 12px 14px; display: flex; gap: 12px; align-items: center; }
+  .hud b { display: block; font: 600 14px 'Space Grotesk', Inter, sans-serif; }
+  .hud small { color: var(--suave); font-size: 12px; display: block; }
+  .hud .pts { margin-left: auto; text-align: right; font: 700 18px 'Space Grotesk', sans-serif; white-space: nowrap; }
+  .equipo { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+  .persona { background: linear-gradient(180deg, var(--panel2), var(--panel)); border: 1px solid var(--borde); border-radius: 14px; padding: 14px; display: flex; gap: 12px; }
+  .avatar { width: 44px; height: 44px; border-radius: 12px; flex: none; position: relative; overflow: hidden; background: var(--acento-suave); }
+  .avatar i { position: absolute; left: 12px; top: 8px; width: 20px; height: 20px; border-radius: 50%; }
+  .avatar s { position: absolute; left: 10px; top: 5px; width: 24px; height: 10px; border-radius: 12px 12px 3px 3px; }
+  .avatar u { position: absolute; left: 7px; top: 29px; width: 30px; height: 20px; border-radius: 10px 10px 0 0; }
+  .persona b { display: block; font: 600 14px 'Space Grotesk', Inter, sans-serif; }
+  .persona .rol { color: var(--acento); font-size: 12px; font-weight: 600; }
+  .persona p { margin: 6px 0 0; font-size: 13px; color: var(--suave); }
+  .persona .auto { display: inline-block; margin-top: 6px; font-size: 11px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--borde); }
+  .persona .auto.on { color: var(--ok); border-color: rgba(95,211,154,.4); } .persona .auto.off { color: var(--suave); }
+</style>
+{% endblock %}
+{% block contenido %}
+<div style="display:flex;flex-wrap:wrap;gap:12px 20px;align-items:baseline"><h1>🏢 Oficina</h1><span class="sim">Simulación · datos públicos · sin dinero real</span></div>
+<p class="sub">La sala vista desde arriba: el rótulo de cotizaciones, las tres pantallas con los cierres de hoy, la pizarra con las reglas y las siete personas del equipo.</p>
+
+<div class="hud" id="hud"></div>
+<div class="escena"><canvas id="sala" width="1100" height="560"></canvas></div>
+
+<h2>👥 El equipo</h2>
+<div class="equipo">
+  {% for m in equipo %}
+  <div class="persona">
+    <div class="avatar"><s style="background:{{ m.pelo }}"></s><i style="background:{{ m.piel }}"></i><u style="background:{{ m.ropa }}"></u></div>
+    <div><b>{{ m.nombre }}</b><span class="rol">{{ m.rol_nombre }}</span><p>{{ m.funcion }}</p><p style="font-style:italic">{{ m.persona }}</p>
+      {% if m.automatico and m.automatico in automatico %}<span class="auto {{ 'on' if automatico[m.automatico].activo else 'off' }}">{{ '▶' if automatico[m.automatico].activo else '⏸' }} {{ automatico[m.automatico].nombre }}</span>{% endif %}</div>
+  </div>
+  {% endfor %}
+</div>
+<p class="aviso-legal">Esto no es asesoramiento financiero. Todo lo que aparece aquí es simulación y datos públicos.</p>
+
+<script>
+const EQUIPO = {{ equipo|tojson }}, REGLAS = {{ reglas|tojson }};
+let mercado = {{ r|tojson }}, tAnim = 0;
+const cv = document.getElementById('sala'), ctx = cv.getContext('2d');
+const VERDE = '#4cc38a', ROJO = '#f08a80', GRIS = '#8f98a6', CLARO = '#e6eaf1';
+const ORIGEN = {x: 550, y: 130}, T = 46;   // isometric origin and tile size (world units -> pixels)
+
+function escapar(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
+const cambioPct = x => x == null ? '—' : (x >= 0 ? '+' : '') + x.toFixed(2).replace('.', ',') + ' %';
+// world (x to the right-down, y to the left-down, z up) -> screen
+const iso = (x, y, z = 0) => ({x: ORIGEN.x + (x - y) * T, y: ORIGEN.y + (x + y) * T / 2 - z});
+
+function poligono(puntos, relleno, borde) {
+  ctx.beginPath(); puntos.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath();
+  if (relleno) { ctx.fillStyle = relleno; ctx.fill(); }
+  if (borde) { ctx.strokeStyle = borde; ctx.lineWidth = 1; ctx.stroke(); }
+}
+// a box standing on the floor: x, y, width (along x), depth (along y), height (z); shaded faces
+function caja(x, y, w, d, h, color) {
+  const sombra = c => c.replace(/[\da-f]{2}$/i, m => Math.max(0, parseInt(m, 16) - 40).toString(16).padStart(2, '0'));
+  poligono([iso(x, y, h), iso(x + w, y, h), iso(x + w, y + d, h), iso(x, y + d, h)], color);                  // top
+  poligono([iso(x, y + d, h), iso(x + w, y + d, h), iso(x + w, y + d, 0), iso(x, y + d, 0)], sombra(color));  // front-left
+  poligono([iso(x + w, y, h), iso(x + w, y + d, h), iso(x + w, y + d, 0), iso(x + w, y, 0)], sombra(sombra(color)));  // front-right
+}
+// draw with a 2D painter inside a quad of the back wall (x along the wall, z up); w,h in world units -> px canvas
+function enPared(x, z, w, h, pintar) {
+  const a = iso(x, 0, z), b = iso(x + w, 0, z), c = iso(x, 0, z - h);
+  ctx.save();
+  ctx.transform((b.x - a.x) / 100, (b.y - a.y) / 100, 0, (c.y - a.y) / 100, a.x, a.y);   // 100x100 local units
+  ctx.beginPath(); ctx.rect(0, 0, 100, 100); ctx.clip();
+  pintar(100, 100); ctx.restore();
+}
+function texto(s, x, y, fuente, color, alinear = 'left') { ctx.font = fuente; ctx.fillStyle = color; ctx.textAlign = alinear; ctx.fillText(s, x, y); ctx.textAlign = 'left'; }
+
+function suelo() {
+  for (let x = 0; x < 10; x++) for (let y = 0; y < 8; y++)
+    poligono([iso(x, y), iso(x + 1, y), iso(x + 1, y + 1), iso(x, y + 1)], (x + y) % 2 ? '#1a212b' : '#171d26', '#20283366');
+  // back walls
+  poligono([iso(0, 0, 0), iso(10, 0, 0), iso(10, 0, 150), iso(0, 0, 150)], '#131920', '#262e3a');
+  poligono([iso(0, 0, 0), iso(0, 8, 0), iso(0, 8, 150), iso(0, 0, 150)], '#10151c', '#262e3a');
+}
+function ticker() {
+  // LED ticker along the back wall with the live prices scrolling slowly
+  const pares = mercado.pares || [];
+  const linea = (pares.length ? pares.map(p => `${p.nombre || p.par}  ${p.precio == null ? 'SIN DATOS' : p.texto}${p.cambio_dia != null ? '  ' + cambioPct(p.cambio_dia) : ''}`) : ['SIN DATOS']).join('     ·     ');
+  enPared(0.3, 142, 9.4, 14, (w, h) => {
+    ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, w, h);
+    ctx.font = '700 5.5px "Space Grotesk", Inter, sans-serif'; ctx.fillStyle = mercado.sin_conexion ? '#ffb020' : VERDE;
+    const paso = ctx.measureText(linea).width + 30, off = (tAnim / 40) % paso;
+    for (let px = -off; px < w; px += paso) ctx.fillText(linea, px, h * 0.68);
+  });
+}
+function pantalla(i, x) {
+  // one wall screen per pair with today's closes; without data, a quiet sine wave
+  const p = (mercado.pares || [])[i];
+  enPared(x, 118, 2.6, 56, (w, h) => {
+    ctx.fillStyle = '#0a0d12'; ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(120,140,160,.18)'; ctx.lineWidth = 0.5;
+    for (let k = 1; k < 4; k++) { ctx.beginPath(); ctx.moveTo(0, h * k / 4); ctx.lineTo(w, h * k / 4); ctx.stroke(); }
+    const serie = p && p.cierres && p.cierres.length > 1 ? p.cierres : Array.from({length: 24}, (_, k) => Math.sin(k * 0.7 + i * 2 + tAnim / 300) * 0.4);
+    const vmin = Math.min(...serie), vmax = Math.max(...serie, vmin + 1e-9), sube = serie[serie.length - 1] >= serie[0];
+    ctx.strokeStyle = p && p.cierres && p.cierres.length > 1 ? (sube ? VERDE : ROJO) : '#3a4656'; ctx.lineWidth = 1.4; ctx.beginPath();
+    serie.forEach((v, k) => { const px = 4 + (w - 8) * k / Math.max(1, serie.length - 1), py = h - 14 - (h - 28) * (v - vmin) / (vmax - vmin); k ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
+    ctx.stroke();
+    texto(p ? (p.nombre || p.par) : 'PANTALLA ' + (i + 1), 4, 9, '700 7px Inter, sans-serif', GRIS);
+    if (p && p.precio != null) texto(p.texto, w - 4, 9, '800 7px "Space Grotesk", sans-serif', CLARO, 'right');
+    if (p && p.cambio_dia != null) texto(cambioPct(p.cambio_dia), w - 4, h - 4, '700 6.5px Inter, sans-serif', p.cambio_dia >= 0 ? VERDE : ROJO, 'right');
+  });
+  // the console the screen stands on
+  caja(x, 0.05, 2.6, 0.5, 26, '#1b222c');
+}
+function pizarra() {
+  // whiteboard on the left wall with the five risk rules
+  const a = iso(0, 1.2, 128), b = iso(0, 5.2, 128), c = iso(0, 1.2, 50);
+  ctx.save();
+  ctx.transform((b.x - a.x) / 100, (b.y - a.y) / 100, 0, (c.y - a.y) / 100, a.x, a.y);
+  ctx.fillStyle = '#f3f2f6'; ctx.fillRect(0, 0, 100, 100); ctx.strokeStyle = '#9a96a3'; ctx.lineWidth = 1.5; ctx.strokeRect(0, 0, 100, 100);
+  texto('REGLAS DE RIESGO', 6, 14, '700 9px Inter, sans-serif', '#d9362b');
+  REGLAS.forEach((r, k) => texto(`${k + 1}. ${r}`, 6, 30 + k * 13, '600 7px Inter, sans-serif', '#2a2530'));
+  ctx.restore();
+}
+function persona(x, y, m, hablando) {
+  // a small figure sitting at a desk: body (clothes), head (skin), hair; the lookout gets a speech bubble
+  const p = iso(x, y, 0);
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(p.x, p.y + 2, 11, 5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = m.ropa; ctx.beginPath(); ctx.roundRect(p.x - 9, p.y - 30, 18, 28, 6); ctx.fill();
+  ctx.fillStyle = m.piel; ctx.beginPath(); ctx.arc(p.x, p.y - 38, 9, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = m.pelo; ctx.beginPath(); ctx.arc(p.x, p.y - 41, 9, Math.PI, 0); ctx.fill();
+  texto(m.nombre, p.x, p.y + 16, '600 10px Inter, sans-serif', CLARO, 'center');
+  texto(m.rol_nombre, p.x, p.y + 27, '500 8.5px Inter, sans-serif', GRIS, 'center');
+  if (hablando) {
+    ctx.font = '600 9px Inter, sans-serif'; const w = Math.min(190, ctx.measureText(hablando).width + 14);
+    ctx.fillStyle = 'rgba(230,234,241,.95)'; ctx.beginPath(); ctx.roundRect(p.x - w / 2, p.y - 72, w, 20, 8); ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.rect(p.x - w / 2, p.y - 72, w, 20); ctx.clip();
+    texto(hablando, p.x, p.y - 58, '600 9px Inter, sans-serif', '#0f141c', 'center'); ctx.restore();
+  }
+}
+function escritorio(x, y) { caja(x, y, 1.6, 0.9, 22, '#2a3341'); caja(x + 0.55, y + 0.1, 0.5, 0.05, 36, '#0d1117'); }
+
+const PUESTOS = [[1.6, 2.2], [4.0, 2.2], [6.4, 2.2], [1.6, 4.6], [4.0, 4.6], [6.4, 4.6], [4.0, 6.6]];
+function dibujar() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  suelo(); ticker(); pizarra();
+  [0.5, 3.6, 6.7].forEach((x, i) => pantalla(i, x));
+  // sign on the back wall
+  enPared(0.3, 100, 2.4, 10, (w, h) => { ctx.fillStyle = 'rgba(10,9,12,.85)'; ctx.fillRect(0, 0, w, h); texto('📡 LA MADRIGUERA TRADING', 4, h * 0.7, '700 6px "Space Grotesk", sans-serif', CLARO); });
+  // the last alert, next to the screens
+  enPared(3.0, 100, 4.2, 12, (w, h) => {
+    ctx.fillStyle = 'rgba(76,195,138,.12)'; ctx.fillRect(0, 0, w, h); ctx.strokeStyle = 'rgba(76,195,138,.35)'; ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+    texto('🔔 ' + (mercado.alerta_ultima || 'Sin alertas hoy').slice(0, 70), 4, h * 0.68, '600 5px Inter, sans-serif', mercado.alerta_ultima ? CLARO : GRIS);
+  });
+  // desks and people, back to front
+  const activo = EQUIPO.length ? EQUIPO : [];
+  PUESTOS.forEach(([x, y], k) => { const m = activo[k]; if (!m) return; escritorio(x - 0.8, y - 1.0); });
+  PUESTOS.forEach(([x, y], k) => {
+    const m = activo[k]; if (!m) return;
+    const burbuja = m.rol === 'vigia' ? (mercado.sin_conexion ? 'Sin conexión con el exchange' : (mercado.ultimo || 'Leyendo precios…')) : null;
+    persona(x, y, m, burbuja);
+  });
+  // plants in the corners
+  [[9.4, 0.4], [9.4, 7.2]].forEach(([x, y]) => { caja(x, y, 0.5, 0.5, 14, '#5a4636'); const p = iso(x + 0.25, y + 0.25, 14); ctx.fillStyle = '#3f8f5a'; ctx.beginPath(); ctx.arc(p.x, p.y - 10, 13, 0, Math.PI * 2); ctx.fill(); });
+}
+function hud() {
+  const pares = mercado.pares || [];
+  const precios = mercado.sin_conexion ? 'Sin conexión con el exchange' : pares.filter(p => p.precio != null).map(p => `${p.nombre || p.par} ${p.texto}`).join(' · ') || 'Esperando datos…';
+  const cambio = (pares[0] || {}).cambio_dia;
+  document.getElementById('hud').innerHTML = `<div class="dep"><div><b>Sala de mercados</b><small>${escapar(precios)}</small><small>${escapar(mercado.alerta_ultima || 'Sin alertas hoy')}</small></div>
+    <div class="pts" style="color:${cambio == null ? 'inherit' : cambio >= 0 ? VERDE : ROJO}">${cambioPct(cambio)}<small>hoy</small></div></div>`
+    + pares.slice(1).map(p => `<div class="dep"><div><b>${escapar(p.nombre || p.par)}</b><small>${p.precio == null ? '—' : escapar(p.texto)}${p.hora ? ' · ' + escapar(p.hora) : ''}</small></div>
+    <div class="pts" style="color:${p.cambio_dia == null ? 'inherit' : p.cambio_dia >= 0 ? VERDE : ROJO}">${cambioPct(p.cambio_dia)}<small>hoy</small></div></div>`).join('');
+}
+async function refrescar() {
+  try {
+    const r = await (await fetch('/estado')).json();
+    mercado = {pares: r.pares, alerta_ultima: (r.alertas[0] || {}).texto || '', sin_conexion: r.sin_conexion, actualizado: r.actualizado, ultimo: r.ultimo};
+    hud();
+  } catch (e) {}
+}
+function animar() { tAnim++; if (tAnim % 2 === 0) dibujar(); requestAnimationFrame(animar); }
+hud(); animar();
+setInterval(refrescar, 60000);
+</script>
+{% endblock %}

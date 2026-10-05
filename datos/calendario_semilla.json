@@ -1,0 +1,10 @@
+{
+ "eventos": [
+  {"fecha": "2026-10-28", "hora": "19:00", "evento": "Decisión de tipos de la Reserva Federal (FOMC, 27-28 oct)", "zona": "EEUU", "importancia": "alta", "fuente": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20240809a.htm"},
+  {"fecha": "2026-10-29", "hora": "14:15", "evento": "Decisión de tipos del BCE (Consejo de Gobierno)", "zona": "Eurozona", "importancia": "alta", "fuente": "https://www.rankia.com/blog/bolsa-desde-cero/6281719-proxima-reunion-bce"},
+  {"fecha": "2026-12-09", "hora": "20:00", "evento": "Decisión de tipos de la Reserva Federal (FOMC, 8-9 dic)", "zona": "EEUU", "importancia": "alta", "fuente": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20240809a.htm"},
+  {"fecha": "2026-12-17", "hora": "14:15", "evento": "Decisión de tipos del BCE (Consejo de Gobierno)", "zona": "Eurozona", "importancia": "alta", "fuente": "https://www.rankia.com/blog/bolsa-desde-cero/6281719-proxima-reunion-bce"}
+ ],
+ "actualizado": null,
+ "notas": "Semilla con las reuniones de la Fed y del BCE que quedan en 2026 (fechas de sus calendarios oficiales; la hora de la Fed es la del comunicado, 14:00 hora de Washington). El documentalista añade IPC, nóminas, PIB y vencimientos cuando se le encarga «Actualizar calendario» desde Tu despacho."
+}

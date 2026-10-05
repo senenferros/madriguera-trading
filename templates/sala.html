@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block titulo %}Sala · {{ nombre_sala }}{% endblock %}
+{% block cabeza %}
+<style>
+  .sala-cab { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: baseline; margin-bottom: 6px; }
+  .sala-cab h1 { margin: 0; }
+  .pares { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin: 18px 0; }
+  .par { background: linear-gradient(180deg, var(--panel2), var(--panel)); border: 1px solid var(--borde); border-radius: 16px; padding: 18px; box-shadow: var(--sombra); min-width: 0; }
+  .par .nombre { font: 600 13px Inter, sans-serif; letter-spacing: .06em; color: var(--suave); text-transform: uppercase; }
+  .par .precio { font: 700 32px/1.1 "Space Grotesk", sans-serif; margin: 6px 0 2px; font-variant-numeric: tabular-nums; }
+  .par .cambio { font: 600 14px Inter, sans-serif; font-variant-numeric: tabular-nums; }
+  .sube { color: var(--ok); } .baja { color: var(--error); }
+  .par .rango { color: var(--suave); font-size: 13px; margin-top: 6px; }
+  .par svg { width: 100%; height: 54px; display: block; margin-top: 10px; }
+  .estado { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--suave); font-size: 13px; margin: 0 0 18px; }
+  .estado b { color: var(--texto); }
+  .dos { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .dos > .caja { min-width: 0; }
+  .lista { list-style: none; margin: 0; padding: 0; }
+  .lista li { padding: 9px 0; border-top: 1px solid var(--borde); display: flex; gap: 12px; align-items: baseline; }
+  .lista li:first-child { border-top: 0; }
+  .lista .cuando { color: var(--suave); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .cal td, .cal th { padding: 7px 8px; text-align: left; border-top: 1px solid var(--borde); font-size: 14px; vertical-align: top; }
+  .cal th { color: var(--suave); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; border-top: 0; }
+  .imp-alta { color: var(--error); font-weight: 600; } .imp-media { color: var(--aviso); } .imp-baja { color: var(--suave); }
+  .interruptores { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .interruptor { font-size: 13px; padding: 5px 12px; border-radius: 99px; border: 1px solid var(--borde); cursor: pointer; user-select: none; }
+  .interruptor.on { color: var(--ok); border-color: rgba(95,211,154,.4); } .interruptor.off { color: var(--suave); }
+  .diario-form { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+  .diario-form .ancho { grid-column: 1 / -1; }
+  .diario-form label { display: block; font-size: 13px; color: var(--suave); margin: 0 0 4px; }
+  .entrada .tipo { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--borde); color: var(--texto); white-space: nowrap; }
+  .reglas { margin: 0; padding-left: 20px; color: var(--suave); font-size: 14px; }
+  .parte { white-space: pre-wrap; font-size: 14px; margin: 10px 0 0; }
+  @media (max-width: 640px) { .diario-form { grid-template-columns: 1fr; } .par .precio { font-size: 26px; } }
+</style>
+{% endblock %}
+{% block contenido %}
+<div class="sala-cab">
+  <h1>📡 Sala</h1>
+  <span class="sim">Simulación · datos públicos · sin dinero real</span>
+</div>
+<p class="sub">El vigía lee las velas de un minuto de Kraken, guarda el histórico en <code>datos/velas/</code> y avisa por Telegram cuando un par rompe el máximo o el mínimo del día o el volumen se dispara. Nada de esto compra ni vende.</p>
+
+<div class="pares" id="pares">
+  {% for p in r.pares %}
+  <div class="par" data-par="{{ p.par }}">
+    <div class="nombre">{{ p.nombre }}</div>
+    <div class="precio" data-campo="precio">{{ p.texto if p.texto else '—' }}</div>
+    <div class="cambio {{ 'sube' if (p.cambio_dia or 0) >= 0 else 'baja' }}" data-campo="cambio">
+      {% if p.cambio_dia is not none %}{{ '%+.2f'|format(p.cambio_dia)|replace('.', ',') }} % hoy{% else %}sin datos de hoy{% endif %}
+    </div>
+    <div class="rango" data-campo="rango">
+      {% if p.maximo %}Rango del día {{ p.minimo_txt }} – {{ p.maximo_txt }} · {{ p.velas_hoy }} velas{% if p.desde %} (desde las {{ p.desde }}){% endif %}{% else %}Esperando la primera lectura{% endif %}
+    </div>
+    <svg viewBox="0 0 300 54" preserveAspectRatio="none" data-campo="curva"></svg>
+  </div>
+  {% endfor %}
+</div>
+<div class="estado">
+  <span>Última lectura: <b id="actualizado">{{ r.actualizado and (r.actualizado|int) or '' }}</b></span>
+  <span id="conexion">{% if r.sin_conexion %}⚠️ <b>Sin conexión con el exchange</b> ({{ r.error }}){% elif not r.actualizado %}El vigía aún no ha leído precios{% else %}Conectado a Kraken{% endif %}</span>
+  <span>Parte diario a las <b>{{ r.hora_parte }}</b> {% if telegram %}por Telegram{% else %}(Telegram sin configurar: rellena el .env){% endif %}</span>
+</div>
+
+<div class="dos">
+  <div class="caja" id="alertas">
+    <h2>🔔 Alertas</h2>
+    <p class="sub" style="margin:0 0 10px">Rotura del máximo o mínimo del día (una vez al día por lado) y picos de volumen (×3 sobre la mediana de la última hora, con 30 min de enfriamiento).</p>
+    <ul class="lista" id="lista-alertas">
+      {% for a in r.alertas %}<li><span class="cuando">{{ a.fecha }}</span><span>{{ a.texto }}</span></li>
+      {% else %}<li><span class="sub" style="margin:0">Ninguna todavía.</span></li>{% endfor %}
+    </ul>
+  </div>
+
+  <div class="caja" id="calendario">
+    <h2>📅 Calendario macro (3 semanas)</h2>
+    <p class="sub" style="margin:0 0 10px">Fechas confirmadas en su fuente. El documentalista las amplía cuando se lo encargas (Claude Code + búsqueda web; si no está instalado, lo dice en el registro).</p>
+    <table class="cal" style="width:100%;border-collapse:collapse">
+      <tr><th>Fecha</th><th>Evento</th><th>Zona</th></tr>
+      {% for e in r.calendario %}
+      <tr><td style="white-space:nowrap">{{ e.fecha[8:] }}/{{ e.fecha[5:7] }} {{ e.hora }}</td>
+          <td class="imp-{{ e.importancia }}">{{ e.evento }}{% if e.fuente and e.fuente.startswith(('http://', 'https://')) %} <a href="{{ e.fuente }}" target="_blank" rel="noopener" title="Fuente">↗</a>{% endif %}</td>
+          <td>{{ e.zona }}</td></tr>
+      {% else %}<tr><td colspan="3" class="sub">Nada apuntado para las próximas tres semanas.</td></tr>{% endfor %}
+    </table>
+    <form method="post" action="{{ url_for('encargar_calendario') }}" style="margin-top:12px"><input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <button class="suave" {{ 'disabled' if calendario_job and calendario_job.estado == 'corriendo' }}>{{ '⏳ Buscando fechas…' if calendario_job and calendario_job.estado == 'corriendo' else '🔎 Actualizar calendario' }}</button>
+      <p class="registro" id="registro-cal">{% if calendario_job and calendario_job.log %}{{ calendario_job.log[-4:]|join('\n') }}{% endif %}</p>
+    </form>
+  </div>
+</div>
+
+<div class="caja" id="diario">
+  <h2>📓 Diario de la sala</h2>
+  <p class="sub" style="margin:0 0 12px">Operaciones simuladas, ideas y notas. Es el historial completo; aquí no se borra nada.</p>
+  <form class="diario-form" method="post" action="{{ url_for('anotar_diario') }}" id="form-diario"><input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <div><label for="d-tipo">Tipo</label><select name="tipo" id="d-tipo">{% for k, v in r.tipos_diario.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+    <div><label for="d-par">Par</label><select name="par" id="d-par"><option value="">—</option>{% for p in r.pares %}<option value="{{ p.par }}">{{ p.nombre }}</option>{% endfor %}</select></div>
+    <div><label for="d-precio">Precio</label><input name="precio" id="d-precio" inputmode="decimal" placeholder="p. ej. 58.230,5"></div>
+    <div><label for="d-cantidad">Cantidad</label><input name="cantidad" id="d-cantidad" inputmode="decimal" placeholder="p. ej. 0,01"></div>
+    <div class="ancho"><label for="d-texto">Qué y por qué</label><textarea name="texto" id="d-texto" rows="2" placeholder="p. ej. Compra simulada tras rotura del máximo del día; stop a −1 %, objetivo +2 %"></textarea></div>
+    <div class="ancho"><button>Apuntar</button></div>
+  </form>
+  <ul class="lista" id="lista-diario" style="margin-top:14px">
+    {% for d in r.diario %}
+    <li class="entrada"><span class="cuando">{{ d.fecha }}</span><span class="tipo">{{ r.tipos_diario.get(d.tipo, d.tipo) }}</span>
+      <span>{% if d.par %}<b>{{ d.par }}</b> {% endif %}{% if d.precio %}a {{ d.precio }} {% endif %}{% if d.cantidad %}× {{ d.cantidad }} {% endif %}{{ d.texto }}</span></li>
+    {% else %}<li><span class="sub" style="margin:0">Todavía vacío. La primera anotación suele ser la regla de riesgo que no vas a romper.</span></li>{% endfor %}
+  </ul>
+</div>
+
+<div class="dos">
+  <div class="caja">
+    <h2>⚙️ Lo que hace solo</h2>
+    <div class="interruptores">
+      {% for k, a in automatico.items() %}
+      <span class="interruptor {{ 'on' if a.activo else 'off' }}" data-tarea="{{ k }}" data-activo="{{ '1' if a.activo else '0' }}" onclick="cambiar(this)">{{ '▶' if a.activo else '⏸' }} {{ a.nombre }}</span>
+      {% endfor %}
+    </div>
+    <p class="registro" id="registro">{% if trabajo and trabajo.log %}{{ trabajo.log[-6:]|join('\n') }}{% elif r.log %}{{ r.log[-6:]|join('\n') }}{% endif %}</p>
+    <p class="sub" style="margin:12px 0 0"><button class="suave" type="button" onclick="pedirParte(false)">📊 Ver el parte ahora</button> <button class="suave" type="button" onclick="pedirParte(true)" {{ '' if telegram else 'disabled' }}>📨 Enviarlo por Telegram</button> o ejecuta <code>python app.py vigilar</code>.</p>
+    <p class="parte" id="parte"></p>
+  </div>
+  <div class="caja">
+    <h2>🧱 Las cinco reglas de riesgo</h2>
+    <ol class="reglas">{% for regla in reglas %}<li>{{ regla }}</li>{% endfor %}</ol>
+    <p class="sub" style="margin:12px 0 0">Las aplica el gestor de riesgo cuando haya operaciones (Fase 2 y 3). Hoy solo hay datos y simulación.</p>
+  </div>
+</div>
+
+<p class="aviso-legal">Datos de mercado: API pública de Kraken, sin cuenta ni claves. Esto no es asesoramiento financiero ni una recomendación de compra o venta; la mayoría de quien hace trading a corto plazo pierde dinero. Todo lo que aparece aquí es simulación y datos públicos.</p>
+
+<script>
+const CSRF = {{ csrf_token|tojson }};
+const fmtHora = ts => ts ? new Date(ts * 1000).toLocaleString('es-ES', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'}) : '—';
+const fmtPct = x => x == null ? 'sin datos de hoy' : (x >= 0 ? '+' : '') + x.toFixed(2).replace('.', ',') + ' % hoy';
+function escapar(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
+function curva(svg, cierres, color) {
+  if (!cierres || cierres.length < 2) { svg.innerHTML = ''; return; }
+  const min = Math.min(...cierres), max = Math.max(...cierres), alto = (max - min) || 1;
+  const pts = cierres.map((c, i) => `${(i / (cierres.length - 1) * 300).toFixed(1)},${(50 - (c - min) / alto * 46).toFixed(1)}`);
+  svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke"/>`
+    + `<circle cx="300" cy="${(50 - (cierres[cierres.length - 1] - min) / alto * 46).toFixed(1)}" r="2.5" fill="${color}"/>`;
+}
+function pintar(r) {
+  for (const p of r.pares) {
+    const caja = document.querySelector(`.par[data-par="${p.par}"]`); if (!caja) continue;
+    const sube = (p.cambio_dia || 0) >= 0, color = sube ? '#5fd39a' : '#ff6b7a';
+    if (p.texto || p.precio != null) caja.querySelector('[data-campo=precio]').textContent = p.texto || p.precio;
+    const cambio = caja.querySelector('[data-campo=cambio]'); cambio.textContent = fmtPct(p.cambio_dia); cambio.className = 'cambio ' + (sube ? 'sube' : 'baja');
+    caja.querySelector('[data-campo=rango]').textContent = p.maximo ? `Rango del día ${p.minimo_txt} – ${p.maximo_txt} · ${p.velas_hoy} velas${p.desde ? ' (desde las ' + p.desde + ')' : ''}` : 'Esperando la primera lectura';
+    curva(caja.querySelector('svg'), p.cierres, color);
+  }
+  document.getElementById('actualizado').textContent = fmtHora(r.actualizado);
+  const con = document.getElementById('conexion');
+  con.innerHTML = r.sin_conexion ? `⚠️ <b>Sin conexión con el exchange</b> (${escapar(r.error || '')})` : (r.actualizado ? 'Conectado a Kraken' : con.innerHTML);
+  const la = document.getElementById('lista-alertas');
+  if (r.alertas.length) la.innerHTML = r.alertas.map(a => `<li><span class="cuando">${escapar(a.fecha)}</span><span>${escapar(a.texto)}</span></li>`).join('');
+  const reg = document.getElementById('registro'); if (r.log && r.log.length) reg.textContent = r.log.slice(-6).join('\n');
+  if (r.calendario_job && r.calendario_job.log) document.getElementById('registro-cal').textContent = r.calendario_job.log.slice(-4).join('\n');
+}
+async function refrescar() {
+  try { pintar(await (await fetch('/estado')).json()); } catch (e) {}
+}
+async function cambiar(el) {
+  const f = new FormData(); f.append('_csrf', CSRF); f.append('tarea', el.dataset.tarea); f.append('activo', el.dataset.activo === '1' ? '0' : '1');
+  try {
+    const r = await (await fetch('/automatico', {method: 'POST', body: f})).json();
+    el.dataset.activo = r.activo ? '1' : '0'; el.className = 'interruptor ' + (r.activo ? 'on' : 'off');
+    el.textContent = (r.activo ? '▶ ' : '⏸ ') + el.textContent.slice(2);
+  } catch (e) {}
+}
+async function pedirParte(enviar) {
+  const f = new FormData(); f.append('_csrf', CSRF); if (enviar) f.append('enviar', '1');
+  try {
+    const r = await (await fetch('/parte', {method: 'POST', body: f})).json();
+    document.getElementById('parte').textContent = r.texto + (enviar ? (r.enviado ? '\n\n✅ Enviado por Telegram.' : r.enviado === false ? '\n\n⚠️ Telegram no lo aceptó.' : '\n\n(Telegram no está configurado.)') : '');
+  } catch (e) {}
+}
+document.getElementById('form-diario').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const form = ev.target, datos = new FormData(form); datos.append('ajax', '1');
+  const r = await fetch(form.action, {method: 'POST', body: datos});
+  let res = {}; try { res = await r.json(); } catch (e) {}
+  if (!r.ok || !res.ok) { alert(res.error || 'No se pudo apuntar.'); return; }
+  const tipos = {{ r.tipos_diario|tojson }};
+  document.getElementById('lista-diario').innerHTML = res.diario.map(d => `<li class="entrada"><span class="cuando">${escapar(d.fecha)}</span><span class="tipo">${escapar(tipos[d.tipo] || d.tipo)}</span>
+    <span>${d.par ? '<b>' + escapar(d.par) + '</b> ' : ''}${d.precio ? 'a ' + d.precio + ' ' : ''}${d.cantidad ? '× ' + d.cantidad + ' ' : ''}${escapar(d.texto)}</span></li>`).join('');
+  form.querySelector('textarea').value = ''; form.querySelector('[name=precio]').value = ''; form.querySelector('[name=cantidad]').value = '';
+});
+pintar({{ r|tojson }});
+setInterval(refrescar, 60000);
+</script>
+{% endblock %}

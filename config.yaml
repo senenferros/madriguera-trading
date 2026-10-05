@@ -1,0 +1,16 @@
+# Configuración de la sala. Se edita desde el panel o a mano.
+nombre: La Madriguera Trading
+pares:
+- XBTEUR
+- ETHEUR
+intervalo_minutos: 1
+hora_parte: '08:00'
+alertas:
+  volumen_x: 3
+  enfriamiento_minutos: 30
+  minimo_velas_dia: 30
+conservar_dias: 400
+automatico:
+  velas: true
+  alertas: true
+  parte: true

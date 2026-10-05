@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block titulo %}{{ nombre_sala }}{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f141c'/%3E%3Cpolyline points='5,22 11,15 16,19 22,9 27,13' fill='none' stroke='%234cc38a' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+  /* La Madriguera Trading: dark room, bone white, market green */
+  :root {
+    --bg: #0c0f14; --bg2: #11161d; --panel: #151b23; --panel2: #1a212b; --texto: #e6eaf1; --suave: #8f98a6;
+    --borde: #262e3a; --acento: #4cc38a; --acento-fuerte: #6ee0a6; --acento-suave: rgba(76,195,138,.12);
+    --tinta: #0f141c; --ok: #5fd39a; --aviso: #f2c46d; --error: #ff6b7a;
+    --sombra: 0 10px 30px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: var(--texto); font: 15px/1.55 Inter, system-ui, "Segoe UI", sans-serif;
+         background: radial-gradient(1200px 600px at 80% -10%, rgba(76,195,138,.07), transparent 60%), var(--bg); min-height: 100vh; }
+  a { color: var(--acento); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  header { background: rgba(12,15,20,.85); backdrop-filter: blur(10px); border-bottom: 1px solid var(--borde); position: sticky; top: 0; z-index: 5; }
+  header .dentro { max-width: 1400px; margin: 0 auto; padding: 10px 20px; display: flex; gap: 28px; align-items: center; }
+  header .marca { display: flex; align-items: center; gap: 12px; color: var(--texto); text-decoration: none; }
+  header .marca svg { width: 36px; height: 36px; }
+  header .marca b { font: 600 15px/1.05 "Space Grotesk", Inter, sans-serif; letter-spacing: .28em; display: block; }
+  header .marca small { font: 500 10px/1 Inter, sans-serif; letter-spacing: .5em; color: var(--acento); }
+  header nav { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+  header nav a { color: var(--suave); text-decoration: none; padding: 7px 12px; border-radius: 999px; font-weight: 500; font-size: 14px; }
+  header nav a:hover { color: var(--texto); background: var(--panel); }
+  header nav a.activo { color: var(--tinta); background: var(--acento); }
+  main { max-width: 1400px; margin: 0 auto; padding: 28px 20px 70px; }
+  h1 { font: 700 28px/1.15 "Space Grotesk", Inter, sans-serif; margin: 0 0 6px; letter-spacing: -.01em; }
+  h2 { font: 600 17px/1.3 "Space Grotesk", Inter, sans-serif; margin: 0 0 12px; }
+  .sub { color: var(--suave); margin: 0 0 24px; }
+  .caja { background: linear-gradient(180deg, var(--panel2), var(--panel)); border: 1px solid var(--borde); border-radius: 16px; padding: 22px; margin-bottom: 20px; box-shadow: var(--sombra); }
+  .chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 99px; background: var(--acento-suave); color: var(--acento); }
+  .chip.gris { background: var(--borde); color: var(--suave); }
+  label { display: block; font-weight: 600; font-size: 13px; margin: 14px 0 6px; color: #cfd6e0; }
+  input[type=text], input:not([type]), textarea, select { width: 100%; padding: 10px 12px; border: 1px solid var(--borde); border-radius: 10px; background: var(--bg2); color: var(--texto); font: inherit; transition: border-color .15s, box-shadow .15s; }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px var(--acento-suave); }
+  textarea { min-height: 60px; resize: vertical; }
+  button, .boton { background: var(--acento); color: var(--tinta); border: 0; border-radius: 10px; padding: 10px 18px; font: inherit; font-weight: 700; cursor: pointer; text-decoration: none; display: inline-block; transition: background .15s, transform .1s; }
+  button:hover, .boton:hover { background: var(--acento-fuerte); }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.suave { background: transparent; color: var(--suave); border: 1px solid var(--borde); font-weight: 500; padding: 6px 12px; }
+  button.suave:hover { color: var(--texto); border-color: var(--acento); background: var(--acento-suave); }
+  .aviso { padding: 12px 16px; border-radius: 12px; margin-bottom: 16px; border: 1px solid transparent; }
+  .aviso.ok { background: rgba(95,211,154,.1); color: var(--ok); border-color: rgba(95,211,154,.25); }
+  .aviso.error { background: rgba(255,107,122,.1); color: var(--error); border-color: rgba(255,107,122,.25); }
+  .sim { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 99px; background: rgba(242,196,109,.14); color: var(--aviso); }
+  .registro { font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; color: var(--suave); white-space: pre-wrap; margin: 10px 0 0; max-height: 140px; overflow: auto; }
+  .aviso-legal { color: var(--suave); font-size: 13px; margin-top: 24px; }
+  ::selection { background: var(--acento); color: var(--tinta); }
+  @media (max-width: 700px) {
+    header .dentro { padding: 8px 12px; gap: 10px; }
+    header .marca b { font-size: 12px; letter-spacing: .18em; } header .marca small { letter-spacing: .3em; }
+    header nav a { padding: 7px 10px; font-size: 13px; white-space: nowrap; }
+    main { padding: 16px 12px 60px; }
+    h1 { font-size: 22px; }
+    .caja { padding: 14px; border-radius: 14px; }
+    button, .boton, input, select, textarea { font-size: 16px; }
+  }
+</style>
+{% block cabeza %}{% endblock %}
+</head>
+<body>
+<header><div class="dentro">
+  <a class="marca" href="{{ url_for('sala') }}"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0f141c" stroke="#262e3a"/><polyline points="5,22 11,15 16,19 22,9 27,13" fill="none" stroke="#4cc38a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg><span><b>LA MADRIGUERA</b><small>TRADING</small></span></a>
+  <nav>
+    <a href="{{ url_for('sala') }}" class="{{ 'activo' if request.endpoint == 'sala' }}">Sala</a>
+    <a href="{{ url_for('oficina') }}" class="{{ 'activo' if request.endpoint == 'oficina' }}">Oficina</a>
+    <a href="{{ url_for('comprobar') }}" class="{{ 'activo' if request.endpoint == 'comprobar' }}">Comprobar</a>
+  </nav>
+</div></header>
+<main>
+  {% for cat, msg in get_flashed_messages(with_categories=true) %}
+    <div class="aviso {{ cat }}">{{ msg }}</div>
+  {% endfor %}
+  {% block contenido %}{% endblock %}
+</main>
+</body>
+</html>

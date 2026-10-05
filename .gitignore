@@ -1,0 +1,16 @@
+# Datos de la sala (velas, estado del vigía, alertas, diario, calendario ampliado, equipo)
+datos/*
+!datos/.gitkeep
+!datos/calendario_semilla.json
+
+# Secretos
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.tmp
