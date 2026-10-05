@@ -21,6 +21,23 @@ CONFIG_POR_DEFECTO = {
     "alertas": {"volumen_x": 3, "enfriamiento_minutos": 30, "minimo_velas_dia": 30},
     "conservar_dias": 400,
     "automatico": {"velas": True, "alertas": True, "parte": True},
+    "historico": {
+        "intervalos": [1, 60, 1440],     # OHLC tails downloaded each run: live 1-min, 30 days of hourly (cross-check), 2 years of daily
+        "dias_trades": 90,               # how far back the Trades backfill looks for gaps
+        "max_llamadas_panel": 300,       # cap for the panel button (~5 min); the terminal has no cap
+        "volcar_cada": 50,               # Trades calls between two disk flushes
+        "hueco_min_minutos": 60,         # a gap shorter than this is "minutes without trades", not a hole to backfill
+    },
+    "backtest": {
+        "capital_inicial": 10000, "comision_pct": 0.40, "deslizamiento_pct": 0.05, "deslizamiento_stop_pct": 0.10,
+        "minimo_orden_eur": 10, "riesgo_pct": 1.0, "tope_activo_pct": 30, "parada_dia_pct": 3, "apagado_pct": 12,
+        "stop_min_pct": 0.3, "dia": "local",
+        "ventana_is_dias": 180, "ventana_oos_dias": 60, "oos_min_dias": 30, "ventanas_minimas": 4,
+        "min_operaciones_is": 30, "hueco_max_dias": 7, "semillas_azar": 200, "semillas_azar_panel": 50,
+        "max_operaciones_guardadas": 5000,
+        "puertas": {"expectativa_min": 0, "profit_factor_min": 1.3, "drawdown_max_pct": 20, "operaciones_min": 100,
+                    "p_azar_max": 0.05, "consistencia_min": 0.5},
+    },
 }
 
 

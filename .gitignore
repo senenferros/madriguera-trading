@@ -14,3 +14,9 @@ __pycache__/
 .venv/
 venv/
 *.tmp
+
+# Histórico y backtests (ya dentro de datos/*, explícitos) y descargas CSV/ZIP de Kraken
+datos/historico/
+datos/backtests/
+*.csv
+*.zip

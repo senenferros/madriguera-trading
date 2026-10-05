@@ -18,10 +18,10 @@ ROLES = [
 # What each person really does (shown in the office), and the automatic job they own (a switch in the panel)
 FUNCION = {
     "vigia": ("Descarga las velas de BTC y ETH de Kraken cada minuto, guarda el histórico y lanza las alertas. Datos públicos, sin tokens.", "velas"),
-    "cuant": ("Hará el backtesting de las estrategias (Fase 1). Todavía no tiene encargos automáticos.", None),
+    "cuant": ("Prueba las estrategias contra el histórico con walk-forward y las juzga solo fuera de muestra (página Backtest). Sin dinero: solo números.", None),
     "operador": ("Llevará el bot en simulación (Fase 2). De momento solo apunta en el diario lo que tú le digas.", None),
     "riesgo": ("Vigila que nada se salte las reglas de riesgo. Sin dinero real no tiene nada que parar todavía.", None),
-    "datos": ("Mantiene el calendario macro (Fed, BCE, IPC…). Claude + búsqueda web, solo cuando se lo encargas.", None),
+    "datos": ("Mantiene el calendario macro y el histórico de velas de Kraken (python app.py historico: CSV trimestral + API). Si no está confirmado, no está en el calendario.", None),
     "contable": ("Llevará el historial y el FIFO cuando haya operaciones. Todavía nada que contar.", None),
     "cronista": ("Redacta el parte diario y lo manda por Telegram a la hora de config.yaml.", "parte"),
 }

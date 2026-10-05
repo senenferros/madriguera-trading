@@ -123,7 +123,7 @@ def configuracion(cfg=None):
         "enfriamiento": int(alertas.get("enfriamiento_minutos") or 30) * 60,
         "minimo_velas": int(alertas.get("minimo_velas_dia") or 30),
         "hora_parte": _hora(cfg.get("hora_parte") or "08:00"),
-        "conservar_dias": int(cfg.get("conservar_dias") or 400),
+        "conservar_dias": max(0, int(cfg.get("conservar_dias") if cfg.get("conservar_dias") is not None else 400)),   # 0 = never prune
     }
 
 
@@ -157,6 +157,8 @@ def guardar_velas(par, nuevas):
 
 def podar_velas(par, conservar_dias):
     """Delete day files older than the retention set in config.yaml (default about 13 months, kept for backtesting)."""
+    if conservar_dias <= 0:   # 0 = never prune
+        return 0
     limite = (date.today() - timedelta(days=conservar_dias)).isoformat()
     carpeta = _carpeta() / "velas" / par
     borrados = 0
