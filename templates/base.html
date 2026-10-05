@@ -71,6 +71,7 @@
   <nav>
     <a href="{{ url_for('sala') }}" class="{{ 'activo' if request.endpoint == 'sala' }}">Sala</a>
     <a href="{{ url_for('oficina') }}" class="{{ 'activo' if request.endpoint == 'oficina' }}">Oficina</a>
+    <a href="{{ url_for('backtest') }}" class="{{ 'activo' if request.endpoint == 'backtest' }}">Backtest</a>
     <a href="{{ url_for('comprobar') }}" class="{{ 'activo' if request.endpoint == 'comprobar' }}">Comprobar</a>
   </nav>
 </div></header>
