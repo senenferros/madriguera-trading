@@ -78,7 +78,7 @@ Las siete comprobaciones fuera de muestra (el veredicto es **PASA** solo si pasa
 | 4 | Operaciones | > 100 |
 | 5 | Frente al azar | p < 0,05: la expectativa real contra 200 juegos de entradas aleatorias con la misma mecánica de salida (50 desde el panel) |
 | 6 | Consistencia | al menos la mitad de las ventanas fuera de muestra con beneficio |
-| 7 | Apagados por −12 % | 0 |
+| 7 | Apagados por −12 % | como mucho 1 cada 3 años fuera de muestra, y con el drawdown < 20 % |
 
 Al lado, como referencia y no como puerta: **comprar y mantener** (todo el capital) y **comprar y mantener al 30 %** (lo que permite la regla 5), con los mismos costes, y la distribución de las entradas al azar. Qué significa cada veredicto:
 

@@ -1230,7 +1230,16 @@ def prueba_veredicto():
     ok(p_mal["consistencia"]["valor"] == 0.25 and "1 de 4" in p_mal["consistencia"]["texto"] and p_mal["drawdown"]["valor"] == 25, "puertas: valores y textos de las que fallan")
     p_borde = backtest.puertas({"n": 100, "profit_factor": 1.3, "max_drawdown_pct": 20, "expectativa_R": 0.0, "expectativa_pct": 0.1, "apagones": 0},
                                {"referencias": {"azar": {"p_azar": 0.05, "mejor_que_pct": 95, "semillas": 50}}, "ventanas": [{"oos_m": {"pnl": 1}}, {"oos_m": {"pnl": -1}}]}, CFG)
-    ok([k for k, g in p_borde.items() if g["ok"]] == ["consistencia", "apagado"], f"puertas: los umbrales son estrictos (n = 100, PF 1,3, MDD 20, E_R 0, p 0,05 fallan; consistencia 50 % y apagado 0 pasan) ({[k for k, g in p_borde.items() if g['ok']]})")
+    ok([k for k, g in p_borde.items() if g["ok"]] == ["consistencia"], f"puertas: los umbrales son estrictos (n = 100, PF 1,3, MDD 20, E_R 0, p 0,05 fallan, y el apagado cae con el MDD; consistencia 50 % pasa) ({[k for k, g in p_borde.items() if g['ok']]})")
+    # gate 7: one trip allowed per 3 years out of sample, only with the drawdown under 20 %
+    anio = 365 * 86400
+    nueve = [{"oos": [T0 + k * anio, T0 + (k + 1) * anio], "oos_m": {"pnl": 1}} for k in range(9)]
+    def g7(apag, mdd, vent=nueve):
+        return backtest.puertas({"n": 150, "profit_factor": 1.5, "max_drawdown_pct": mdd, "expectativa_R": 0.2, "expectativa_pct": 0.1, "apagones": apag},
+                                {"referencias": {"azar": {"p_azar": 0.01, "mejor_que_pct": 99, "semillas": 50}}, "ventanas": vent}, CFG)["apagado"]
+    ok(g7(3, 15)["ok"] and g7(3, 15)["umbral"] == 3 and "uno cada 3 años" in g7(3, 15)["texto"], f"puerta 7: 3 apagados en 9 años con MDD 15 % pasa ({g7(3, 15)['texto']})")
+    ok(not g7(4, 15)["ok"] and not g7(1, 21)["ok"] and g7(0, 19.9)["ok"], "puerta 7: 4 en 9 años falla; 1 con MDD 21 % falla; 0 con MDD 19,9 % pasa")
+    ok(not g7(1, 10, nueve[:2])["ok"], "puerta 7: 1 apagado en 2 años falla")
     res_av = {"oos": {"metricas": {"expectativa_R": 0.1, "profit_factor": 1.5, "rechazadas": 3}}, "is_total": {"expectativa_R": 0.4},
               "ventanas": [{"oos": [backtest._epoch_fecha("2021-06-01"), backtest._epoch_fecha("2022-05-01")], "parametros": {"a": k}} for k in range(3)], "intentos_previos": 0}
     av = backtest.avisos(res_av, CFG)

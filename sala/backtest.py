@@ -705,6 +705,12 @@ def puertas(m, res, cfg):
     apagones = m.get("apagones", res.get("apagones", 0))
     reanudaciones = m.get("reanudaciones", res.get("reanudaciones", 0))
     e_r, e_pct = m.get("expectativa_R", 0.0), m.get("expectativa_pct", 0.0)
+    # gate 7: at most one kill-switch trip per 3 years judged out of sample, and only while the drawdown gate holds
+    try:
+        anos_oos = sum(max(0, w["oos"][1] - w["oos"][0]) for w in vent) / (365 * 86400)
+    except (KeyError, TypeError, IndexError):
+        anos_oos = 0.0
+    permitidos = int(anos_oos // 3)
     if pf is None and n > 0:
         texto_pf = f"Profit factor: sin pérdidas en {n} operaciones · revisar, huele a mirar al futuro"
     else:
@@ -727,8 +733,9 @@ def puertas(m, res, cfg):
         "azar": {"ok": bool(p is not None and p < u["p_azar_max"]), "valor": p, "umbral": u["p_azar_max"], "texto": texto_azar},
         "consistencia": {"ok": bool(vent and ratio >= u["consistencia_min"]), "valor": round(ratio, 3), "umbral": u["consistencia_min"],
                          "texto": f"Ventanas con beneficio {positivas} de {len(vent)} · ≥ {_coma(u['consistencia_min'] * 100, 0)} %"},
-        "apagado": {"ok": bool(apagones == 0), "valor": apagones, "umbral": 0,
-                    "texto": f"Apagados por −{_coma(cfg['apagado_pct'], 0)} %: {apagones} · tiene que ser 0"
+        "apagado": {"ok": bool(apagones <= permitidos and mdd < u["drawdown_max_pct"]), "valor": apagones, "umbral": permitidos,
+                    "texto": f"Apagados por −{_coma(cfg['apagado_pct'], 0)} %: {apagones} · como mucho uno cada 3 años fuera de muestra "
+                             f"({permitidos} en {_coma(anos_oos, 1)} años) y con el drawdown < {_coma(u['drawdown_max_pct'], 0)} %"
                              + (f" (reanudado en la ventana siguiente {reanudaciones} {'vez' if reanudaciones == 1 else 'veces'})" if reanudaciones else "")},
     }
 
