@@ -27,8 +27,9 @@ PANEL_HOST = "127.0.0.1"
 PANEL_PORT = 5100   # the shorts panel uses another port, so both can run on the same PC
 
 if hasattr(sys.stdout, "reconfigure"):
-    # Windows consoles and redirected output may be cp1252: never die on an accent, replace what cannot be shown
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    # Windows consoles and redirected output may be cp1252: never die on an accent, replace what cannot be shown.
+    # Line-buffered so a log file (historico --dias 730 > datos\historico.log) shows progress as it happens.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
 
 def cmd_comprobar(_args):
