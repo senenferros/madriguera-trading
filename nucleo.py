@@ -90,9 +90,22 @@ def cargar_config():
     return _fusionar(CONFIG_POR_DEFECTO, datos)
 
 
+COMENTARIOS_CONFIG = {   # the section comments config.yaml ships with; yaml.safe_dump would drop them on every panel toggle
+    "historico": "# Histórico de Kraken: python app.py historico",
+    "backtest": "# Backtest: comisión taker de Kraken Pro 0,40 % (maker 0,25); cámbiala si operas con limitadas",
+}
+
+
 def guardar_config(cfg):
     texto = yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False, width=1000)
-    CONFIG.write_text("# Configuración de la sala. Se edita desde el panel o a mano.\n" + texto, encoding="utf-8")
+    lineas = []
+    for linea in texto.splitlines():
+        clave = linea.split(":", 1)[0] if linea and not linea[0].isspace() and ":" in linea else None
+        if clave in COMENTARIOS_CONFIG:
+            lineas.append(COMENTARIOS_CONFIG[clave])
+        lineas.append(linea)
+    CONFIG.write_text("# Configuración de la sala. Se edita desde el panel o a mano (los comentarios propios se pierden al tocar un interruptor).\n"
+                      + "\n".join(lineas) + "\n", encoding="utf-8")
 
 
 def automatico(cfg, tarea):

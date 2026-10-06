@@ -192,14 +192,27 @@ def _mtime(ruta):
 
 # ---------- candles on disk: one file per pair, interval and UTC month ----------
 
+def _par_valido(par):
+    """Pair codes are upper case on disk, in the manifest and in Kraken's answers: 'xbteur' and 'XBTEUR' must be one key."""
+    par = str(par or "").strip().upper()
+    if not re.fullmatch(r"[A-Z0-9]{6,12}", par):
+        raise ValueError(f"Par no válido: «{par or '?'}» (ejemplo: XBTEUR)")
+    return par
+
+
 def guardar(par, intervalo, velas, fuente="api"):
     """Merge candles into their month files (dict by t, the newer wins), drop invalid ones, refresh the manifest.
-    Returns the number of valid candles merged (not necessarily new)."""
+    Returns the number of valid candles merged (not necessarily new). Two sources are special: 'ohlc' never stores a
+    candle that has not closed yet (Kraken's answer ends with the frame in progress) and 'vigia' never replaces a
+    candle already stored (the watcher's copy is the least reliable one)."""
     intervalo = int(intervalo)
     por_mes = {}
+    limite = int(time.time()) if fuente == "ohlc" else None
     for v in velas:
         v = _normalizar(v)
         if v is None or not validar_vela(v, intervalo):
+            continue
+        if limite is not None and v[0] + intervalo * 60 > limite:
             continue
         por_mes.setdefault(mes_de(v[0]), {})[v[0]] = v
     total = 0
@@ -208,6 +221,8 @@ def guardar(par, intervalo, velas, fuente="api"):
         ruta = ruta_mes(par, intervalo, mes)
         with mercado._lock:
             actuales = {v[0]: v for v in mercado._leer_json(ruta, []) if validar_vela(v, intervalo)}
+            if fuente == "vigia":
+                lote = {t: v for t, v in lote.items() if t not in actuales}
             actuales.update(lote)
             lista = [actuales[t] for t in sorted(actuales)]
             mercado._escribir_json(ruta, lista)
@@ -298,12 +313,16 @@ def cargar(par, desde_t, hasta_t, marco=1):
     d = f[1]
     m0, m1 = mes_de(desde_t), mes_de(max(desde_t, hasta_t - 1))
     out = {}
-    for mes in meses(par, d):
+    todos = meses(par, d)
+    for mes in todos:
         if mes < m0 or mes > m1:
             continue
         velas = leer_mes(par, d, mes)
         if d != marco:
-            velas = remuestrear(velas, d, marco, hasta_t=hasta_t)
+            # a hasta_t beyond the end of the data must not close the last bucket early: where the source really ends,
+            # the bucket in progress is not emitted (inside the data a missing minute is "no trades", not an end)
+            limite = min(hasta_t, velas[-1][0] + d * 60) if velas and mes == todos[-1] else hasta_t
+            velas = remuestrear(velas, d, marco, hasta_t=limite)
         for v in velas:
             if v[0] >= desde_t and v[0] + marco * 60 <= hasta_t:
                 out[v[0]] = v
@@ -411,9 +430,17 @@ def rellenar_con_trades(par, desde_t, hasta_t, avisar=print, max_llamadas=None, 
     if hasta_t <= desde_t:
         return {"velas": 0, "llamadas": 0, "hasta_t": desde_t, "terminado": True, "sin_operaciones": True}
     total_velas, llamadas_previas = 0, 0
+    ultimo_id = None
     if isinstance(cursor, dict) and cursor.get("desde_t") == desde_t and cursor.get("hasta_t") == hasta_t and cursor.get("last"):
-        # the pending minute of the last flush was never stored: download it again from its first trade
-        since = int(cursor["pendiente_t"]) * 10 ** 9 - 1 if cursor.get("pendiente_t") else int(cursor["last"])
+        if cursor.get("pendiente_t"):
+            # the pending minute of the last flush was never stored: download it again from its first trade
+            since = int(cursor["pendiente_t"]) * 10 ** 9 - 1
+        else:
+            since = int(cursor["last"])
+            try:   # the trade of the cursor comes back with the first page: its id is what tells it apart
+                ultimo_id = int(cursor["ultimo_id"]) if cursor.get("ultimo_id") is not None else None
+            except (TypeError, ValueError):
+                ultimo_id = None
         total_velas = int(cursor.get("velas") or 0)
         llamadas_previas = int(cursor.get("llamadas") or 0)
         avisar(f"Trades {nombre}: reanudo el tramo {_fecha_hora(desde_t)} → {_fecha_hora(hasta_t)} desde el cursor ({total_velas} velas ya guardadas)")
@@ -421,7 +448,7 @@ def rellenar_con_trades(par, desde_t, hasta_t, avisar=print, max_llamadas=None, 
         since = desde_t * 10 ** 9 - 1
     acum = {}                      # minute t -> candle still in memory
     estado = {"llamadas": 0, "last": str(since), "ultimo_min": None, "hasta": desde_t, "terminado": False, "operaciones": 0,
-              "velas": total_velas, "ultimo_id": None}
+              "velas": total_velas, "ultimo_id": ultimo_id}
     mes_actual = None
 
     def volcar(final):
@@ -438,7 +465,7 @@ def rellenar_con_trades(par, desde_t, hasta_t, avisar=print, max_llamadas=None, 
         else:
             pendiente = min(acum) if acum else None
             mercado._escribir_json(ruta_cursor, {"desde_t": desde_t, "hasta_t": hasta_t, "last": estado["last"],
-                                                 "pendiente_t": pendiente, "velas": estado["velas"],
+                                                 "pendiente_t": pendiente, "velas": estado["velas"], "ultimo_id": estado["ultimo_id"],
                                                  "llamadas": llamadas_previas + estado["llamadas"], "actualizado": int(time.time())})
 
     fallos = 0
@@ -474,9 +501,13 @@ def rellenar_con_trades(par, desde_t, hasta_t, avisar=print, max_llamadas=None, 
                         t_ns = _ns(fila[2])
                     except (TypeError, ValueError, IndexError):
                         continue
-                    if tid is not None and estado["ultimo_id"] is not None and tid <= estado["ultimo_id"]:
-                        continue   # Kraken repeats the trade of the cursor
-                    if t_ns <= since:
+                    if tid is not None and estado["ultimo_id"] is not None:
+                        # Kraken repeats the trade of the cursor: the id tells it apart. The time cannot: `time` is a
+                        # float with ~240 ns of noise while `last` is exact, and several fills of one sweep share a
+                        # time, so a time filter at the cursor would drop real trades. Only clearly older rows go.
+                        if tid <= estado["ultimo_id"] or t_ns < since - 10 ** 7:
+                            continue
+                    elif t_ns <= since:
                         continue
                     nuevas.append(fila)
                 try:
@@ -501,10 +532,7 @@ def rellenar_con_trades(par, desde_t, hasta_t, avisar=print, max_llamadas=None, 
                     volcar(False)
                     avisar(f"Trades {nombre}: hasta {_fecha_hora(estado['ultimo_min'])} · {estado['velas']} velas · {llamadas_previas + estado['llamadas']} llamadas")
                 mes_actual = mes
-        except KeyboardInterrupt:
-            volcar(False)
-            raise
-        finally:
+        finally:   # Ctrl+C included: the buffer is flushed once and the cursor saved (terminado is False then)
             volcar(estado["terminado"])
     return {"velas": estado["velas"], "llamadas": estado["llamadas"], "hasta_t": estado["hasta"], "terminado": estado["terminado"],
             "sin_operaciones": estado["terminado"] and estado["velas"] == 0 and estado["operaciones"] == 0}
@@ -527,8 +555,15 @@ def consolidar_vigia(par, avisar=print):
     if not dias:
         return 0
     total = 0
-    for dia in dias:
+    for k, dia in enumerate(dias):
+        if k % 20 == 0:
+            latir(par)   # hundreds of day files can take minutes: keep the lock alive
+        ruta = mercado._ruta_velas(par, dia)
         velas = [v for v in mercado.velas_dia(par, dia) if validar_vela(v, 1) and v[5] > 0]
+        # the watcher stores the candle in progress and only the next pass replaces it: the file's last candle is
+        # trusted only if the file was written after that candle closed (a stop at 15:00:20 leaves 20 s of 15:00)
+        if velas and velas[-1][0] + 60 > _mtime(ruta):
+            velas.pop()
         if velas:
             total += guardar(par, 1, velas, fuente="vigia")
 
@@ -576,9 +611,9 @@ def actualizar(par=None, intervalos=None, dias=None, avisar=print, cfg=None, max
     cfg = configuracion(cfg)
     pares = mercado.configuracion()["pares"]
     if isinstance(par, str):
-        pares = [par]
+        pares = [_par_valido(par)]
     elif par:
-        pares = list(par)
+        pares = [_par_valido(p) for p in par]
     intervalos = [int(i) for i in (intervalos or cfg["intervalos"]) if int(i) in INTERVALOS] or cfg["intervalos"]
     if dias is not None:
         cfg = {**cfg, "dias_trades": max(0, int(dias))}
@@ -645,10 +680,11 @@ def importar_csv(ruta, par=None, intervalo=None, desde=None, hasta=None, avisar=
     history, one month in memory at a time. Idempotent. `desde`/`hasta` are UTC dates (hasta inclusive)."""
     ruta = Path(ruta)
     m = _RE_CSV.match(ruta.stem)
-    par = par or (m.group(1).upper() if m else None)
+    par = par or (m.group(1) if m else None)
     intervalo = intervalo or (int(m.group(2)) if m else None)
     if not par or not intervalo:
         raise ValueError(f"No puedo deducir el par y el intervalo del nombre {ruta.name}: indícalos con --par y --intervalo")
+    par = _par_valido(par)   # 'xbteur' from the CLI would split the manifest key from the files on Windows
     intervalo = int(intervalo)
     desde_t = _t_de_fecha(desde) if desde else None
     hasta_t = _t_de_fecha(hasta) + 86400 if hasta else None

@@ -238,14 +238,14 @@ function pintarDetalle(res) {
     + fila('Drawdown máximo', fmt(m.max_drawdown_pct, 1) + ' %', fmt(bh.max_drawdown_pct, 1) + ' %', fmt(bh30.max_drawdown_pct, 1) + ' %', '—')
     + fila('Sharpe diario', fmt(m.sharpe_diario, 2), fmt(bh.sharpe_diario, 2), '—', '—')
     + fila('Expectativa (R)', fmt(m.expectativa_R, 2, true), '—', '—', az.expectativa_R ? fmt(az.expectativa_R.p50, 2, true) + ' / ' + fmt(az.expectativa_R.p95, 2, true) : '—')
-    + fila('Operaciones', m.n == null ? '—' : m.n, '1', '1', az.n_ops == null ? '—' : az.n_ops + ' × ' + (az.semillas || 0) + ' semillas')
+    + fila('Operaciones', m.n == null ? '—' : m.n, '1', '1', az.n_ops == null ? '—' : (az.n_mediana != null ? az.n_mediana + ' (mediana) × ' : az.n_ops + ' × ') + (az.semillas || 0) + ' semillas')
     + `</tbody></table></div>`;
   const isT = res.is_total || {};
   if (isT.n) html += `<p class="linea">Dentro de muestra prometía <b>${fmt(isT.expectativa_R, 2, true)} R</b>; fuera dio <b>${fmt(m.expectativa_R, 2, true)} R</b>.</p>`;
   const c = res.costes || {};
   if (c.comisiones != null) html += `<p class="linea">Lo que se llevaron los costes: <b>${fmt(c.comisiones, 0)} €</b> en comisiones y <b>${fmt(c.deslizamiento, 0)} €</b> en deslizamiento (taker ${fmt(c.comision_pct, 2)} %, deslizamiento ${fmt(c.deslizamiento_pct, 2)} %).</p>`;
   if (res.intentos_previos > 0) html += `<p class="linea" style="color:var(--aviso)">Van ${res.intentos_previos} backtests anteriores de esta estrategia y par.</p>`;
-  if (az.semillas) html += `<p class="nota">El contraste de azar mide si las <b>entradas</b> aportan algo: ${az.semillas} series de ${az.n_ops} entradas al azar con la misma salida (stop ${fmt(az.stop_pct, 2)} %, ${az.barras} barras) y los mismos costes.</p>`;
+  if (az.semillas) html += `<p class="nota">El contraste de azar mide si las <b>entradas</b> aportan algo: ${az.semillas} series de hasta ${az.n_ops} entradas al azar con la misma salida (stop ${fmt(az.stop_pct, 2)} %, ${az.barras} barras), los mismos costes y las mismas reglas de riesgo${az.n_mediana != null ? ` (mediana ${az.n_mediana} entradas por serie; ${az.apagadas || 0} series apagadas por la regla 4 antes de acabar)` : ''}.</p>`;
   document.getElementById('veredicto-detalle').innerHTML = html;
   // windows
   const vt = (res.ventanas || []).map(w => `<tr><td class="num">${w.k}</td><td style="white-space:nowrap">${escapar((w.is_fechas || [])[0] || '')} – ${escapar((w.is_fechas || [])[1] || '')}</td>
@@ -318,9 +318,10 @@ function curvaEquity(canvas, curva, curvaBH, curvaBH30, ventanas, capitalInicial
 
 async function enviar(form) {
   const datos = new FormData(form); datos.append('ajax', '1');
+  const boton = form.querySelector('button'); if (boton) boton.disabled = true;   // no double submit before the first poll
   let r, res = {};
   try { r = await fetch(form.action, {method: 'POST', body: datos}); res = await r.json(); } catch (e) {}
-  if (!r || !r.ok || !res.ok) { alert(res.error || 'No se pudo encargar. Recarga la página (F5) y repite.'); return; }
+  if (!r || !r.ok || !res.ok) { if (boton) boton.disabled = false; alert(res.error || 'No se pudo encargar. Recarga la página (F5) y repite.'); return; }
   if (form.id === 'form-backtest') estadoPrevio.trabajo = 'corriendo';   // so the first poll that sees it finished opens the result
   refrescar();
 }

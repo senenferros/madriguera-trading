@@ -45,6 +45,15 @@ def crear_panel(vigia=True, bot=None):
 
     bot = bot if bot is not None else telegram.Bot()
     trabajos = {}   # "vigia" -> {estado, log}, "calendario" -> {estado, log}, "backtest" -> {estado, log, id}, "historico" -> {estado, log}
+    lanzar_lock = threading.Lock()   # the server is threaded: check-and-assign of a job must be one step
+
+    def _reservar(nombre, trabajo):
+        """Register `trabajo` under `nombre` unless one is already running; False when refused."""
+        with lanzar_lock:
+            if trabajos.get(nombre, {}).get("estado") == "corriendo":
+                return False
+            trabajos[nombre] = trabajo
+            return True
 
     # ---------- security ----------
 
@@ -129,11 +138,11 @@ def crear_panel(vigia=True, bot=None):
         return lambda m: trabajo["log"].append(f"{time.strftime('%H:%M:%S')}  {quien}: {m}")
 
     def lanzar_backtest(estrategia, par, desde=None, hasta=None):
-        """The quant runs one walk-forward backtest in the background (one at a time; the page polls the log)."""
-        if trabajos.get("backtest", {}).get("estado") == "corriendo":
-            return
+        """The quant runs one walk-forward backtest in the background (one at a time; the page polls the log).
+        Returns False when refused because one is already running."""
         trabajo = {"estado": "corriendo", "log": [], "id": None}
-        trabajos["backtest"] = trabajo
+        if not _reservar("backtest", trabajo):
+            return False
 
         def correr():
             try:
@@ -147,20 +156,22 @@ def crear_panel(vigia=True, bot=None):
                 trabajo["estado"] = "error"
 
         threading.Thread(target=correr, daemon=True).start()
+        return True
 
     def lanzar_historico():
-        """The archivist downloads the recent tail of the Kraken history (capped calls; years come from the CSV in the CLI)."""
-        if trabajos.get("historico", {}).get("estado") == "corriendo":
-            return
+        """The archivist downloads the recent tail of the Kraken history (capped calls; years come from the CSV in the CLI).
+        Returns False when refused because one is already running."""
         trabajo = {"estado": "corriendo", "log": []}
-        trabajos["historico"] = trabajo
+        if not _reservar("historico", trabajo):
+            return False
 
         def correr():
             try:
                 from sala import historico
                 res = historico.actualizar(avisar=_registrar(trabajo, "Datos"), max_llamadas=historico.configuracion()["max_llamadas_panel"])
                 ocupados = [par for par, r in (res or {}).items() if r.get("ocupado")]
-                errores = [f"{mercado.nombre_par(par)}: {r['error']}" for par, r in (res or {}).items() if r.get("error")]
+                # a locked pair carries its message in 'error' too (and actualizar already logged it): one summary line
+                errores = [f"{mercado.nombre_par(par)}: {r['error']}" for par, r in (res or {}).items() if r.get("error") and not r.get("ocupado")]
                 if ocupados:
                     trabajo["log"].append(f"{time.strftime('%H:%M:%S')}  Otro proceso está actualizando el histórico; espera a que termine")
                 for e in errores:
@@ -171,22 +182,19 @@ def crear_panel(vigia=True, bot=None):
                 trabajo["estado"] = "error"
 
         threading.Thread(target=correr, daemon=True).start()
+        return True
 
     app.lanzar_backtest = lanzar_backtest     # the tests swap it for a fake
     app.lanzar_historico = lanzar_historico
 
     def _ocupado():
-        # True when some pair has a live ocupado.json (another process, usually the CLI, is writing its history)
+        # True when ANOTHER process holds a live ocupado.json (usually the CLI); the panel's own history job holds
+        # the lock in this process and must not report itself as "otro proceso"
         try:
             from sala import historico
-            ahora = time.time()
-            for par in mercado.configuracion()["pares"]:
-                bloqueo = mercado._leer_json(nucleo.DATOS_DIR / "historico" / par / "ocupado.json", None)
-                if isinstance(bloqueo, dict) and ahora - float(bloqueo.get("latido") or 0) < historico.LATIDO_MAX:
-                    return True
+            return bool(historico.bloqueos(mercado.configuracion()["pares"]))
         except Exception:
-            pass
-        return False
+            return False
 
     # ---------- pages ----------
 
@@ -282,7 +290,12 @@ def crear_panel(vigia=True, bot=None):
                 return {"ok": False, "error": "Fecha no válida: usa AAAA-MM-DD"}, 400
             flash("Fecha no válida: usa AAAA-MM-DD", "error")
             return redirect(url_for("backtest") + "#encargar")
-        app.lanzar_backtest(estrategia, par, desde, hasta)
+        if app.lanzar_backtest(estrategia, par, desde, hasta) is False:   # a fake returning None still counts as launched
+            mensaje = "Ya hay un backtest en marcha; espera a que termine"
+            if f.get("ajax"):
+                return {"ok": False, "error": mensaje, "trabajo": trabajos.get("backtest")}, 409
+            flash(mensaje, "error")
+            return redirect(url_for("backtest") + "#trabajo")
         if f.get("ajax"):
             return {"ok": True, "trabajo": trabajos.get("backtest")}
         flash("El analista cuantitativo está probando la estrategia; tarda entre segundos y varios minutos.", "ok")
@@ -290,7 +303,12 @@ def crear_panel(vigia=True, bot=None):
 
     @app.post("/historico")
     def encargar_historico():
-        app.lanzar_historico()
+        if app.lanzar_historico() is False:
+            mensaje = "Ya hay una descarga del histórico en marcha; espera a que termine"
+            if request.form.get("ajax"):
+                return {"ok": False, "error": mensaje, "trabajo": trabajos.get("historico")}, 409
+            flash(mensaje, "error")
+            return redirect(url_for("backtest") + "#datos")
         if request.form.get("ajax"):
             return {"ok": True, "trabajo": trabajos.get("historico")}
         flash("El documentalista está bajando la cola del histórico de Kraken (unos minutos).", "ok")

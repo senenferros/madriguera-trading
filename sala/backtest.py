@@ -72,7 +72,8 @@ def configuracion(cfg=None):
         if k == "dia":
             salida[k] = "utc" if str(bt.get("dia", d)).strip().lower() == "utc" else "local"
         elif k in _ENTEROS:
-            salida[k] = _numero(bt.get(k), d, entero=True, minimo=0)
+            # at least one random seed: with 0 the contrast cannot run and the azar gate would say «sin operaciones»
+            salida[k] = _numero(bt.get(k), d, entero=True, minimo=1 if k.startswith("semillas") else 0)
         else:
             salida[k] = _numero(bt.get(k), d, minimo=0)
     salida["ventana_is_dias"] = max(1, salida["ventana_is_dias"])
@@ -234,20 +235,19 @@ def simular(velas, estrategia, params, cfg, desde_t=None, hasta_t=None, capital=
             elif pos is not None:
                 cerrar(o * (1 - desl), pendiente["motivo"], i, t, o)
             pendiente = None
-        # 2. inside the bar: stop first (pessimistic), then the limit target
+        # 2. inside the bar: the open is the first print, so a gap through the stop or through the target fills there;
+        #    only when neither gapped does the ambiguous "both touched" case arise, and then the stop wins (pessimistic)
         if pos is not None:
             stop = pos["stop"]
+            objetivo = pos["objetivo"]
             if o <= stop:
                 cerrar(o * (1 - desl_stop), "stop", i, t, stop)
+            elif objetivo is not None and o >= objetivo:
+                cerrar(o, "objetivo", i, t, objetivo)
             elif l <= stop:
                 cerrar(stop * (1 - desl_stop), "stop", i, t, stop)
-            else:
-                objetivo = pos["objetivo"]
-                if objetivo is not None:
-                    if o >= objetivo:
-                        cerrar(o, "objetivo", i, t, objetivo)
-                    elif h >= objetivo:
-                        cerrar(objetivo, "objetivo", i, t, objetivo)
+            elif objetivo is not None and h >= objetivo:
+                cerrar(objetivo, "objetivo", i, t, objetivo)
         # 3. at the close: equity, curve, day stop, kill switch, then the strategy
         equity = efectivo + (pos["cantidad"] * c if pos is not None else 0.0)
         cuenta = desde_t is None or t >= desde_t
@@ -291,10 +291,13 @@ def simular(velas, estrategia, params, cfg, desde_t=None, hasta_t=None, capital=
                         pos["stop"] = nuevo
         equity_prev = equity
 
-    # 4. end of the slice: a still-open position is closed at the last close, paying the costs
+    # 4. end of the slice: a still-open position is closed at the last close, paying the costs; the last point of the
+    #    curve becomes that net capital, so curva[-1][1] == capital_final and the metrics pay for the forced close too
     if pos is not None and ultimo_i is not None:
         vl = velas[ultimo_i]
         cerrar(vl[4] * (1 - desl), "fin", ultimo_i, vl[0], vl[4])
+        if curva and curva[-1][0] == vl[0]:
+            curva[-1][1] = efectivo
     return {"operaciones": operaciones, "curva": curva, "capital_final": efectivo, "rechazadas": rechazadas,
             "rechazos": rechazos, "paradas_dia": paradas_dia, "apagones": apagones, "barras": barras,
             "barras_en_posicion": barras_en_posicion, "comisiones": comisiones_total, "deslizamiento": deslizamiento_total,
@@ -491,8 +494,18 @@ def _seleccionar(velas, estrategia, cfg, ventana, avisar=print, total=None):
     else:
         params, por_defecto, elegida = tabla[mejor]["parametros"], False, mejor
     avisar(f"Ventana {k}/{total or '?'}: parámetros {params} ({tabla[elegida]['n']} operaciones dentro de muestra)"
-           + (" · por defecto: ninguna combinación llegó al mínimo" if por_defecto else ""))
+           + (" · por defecto: " + _motivo_defecto(tabla, minimo) if por_defecto else ""))
     return params, tabla, por_defecto, elegida, ops_por_fila[elegida] if ops_por_fila else []
+
+
+def _motivo_defecto(tabla, minimo):
+    """Why no IS combination qualified: they switched off (-12 % in sample), traded too little, or both."""
+    apagadas = sum(1 for f in tabla if f["apagones"] > 0)
+    if apagadas and apagadas == len(tabla):
+        return "todas las combinaciones se apagaron dentro de muestra (regla 4)"
+    if apagadas:
+        return f"{apagadas} de {len(tabla)} combinaciones se apagaron dentro de muestra y el resto no llegó al mínimo de {minimo} operaciones"
+    return f"ninguna combinación llegó al mínimo de {minimo} operaciones"
 
 
 def seleccionar(velas, estrategia, cfg, ventana, avisar=print, total=None):
@@ -634,7 +647,8 @@ def azar(velas, cfg, n_ops, stop_pct, barras, desde_t, hasta_t, semillas, expect
             Rs = [op["R"] for op in r["operaciones"]]
             por_semilla.append({"semilla": s, "n": len(Rs), "expectativa_R": statistics.mean(Rs) if Rs else 0.0,
                                 "rentabilidad_pct": (r["capital_final"] / cfg["capital_inicial"] - 1) * 100,
-                                "profit_factor": _profit_factor([op["pnl"] for op in r["operaciones"]])})
+                                "profit_factor": _profit_factor([op["pnl"] for op in r["operaciones"]]),
+                                "apagones": r["apagones"]})
     ers = [x["expectativa_R"] for x in por_semilla]
     rents = [x["rentabilidad_pct"] for x in por_semilla]
     pfs = [x["profit_factor"] for x in por_semilla if x["profit_factor"] is not None]
@@ -647,8 +661,12 @@ def azar(velas, cfg, n_ops, stop_pct, barras, desde_t, hasta_t, semillas, expect
     def tres(valores, d):
         return {"p5": _r(_percentil(valores, 0.05), d), "p50": _r(_percentil(valores, 0.50), d), "p95": _r(_percentil(valores, 0.95), d)}
 
+    # the seeds trade under the same rules as the strategy, so the -12 % switch can stop a seed before its n_ops
+    # entries: the result says how many entries a seed really placed and how many seeds were switched off
     return {"semillas": S, "p_azar": p_azar, "mejor_que_pct": _r(mejor, 1), "expectativa_R": tres(ers, 3),
-            "rentabilidad_pct": tres(rents, 2), "profit_factor": tres(pfs, 3), "por_semilla": por_semilla}
+            "rentabilidad_pct": tres(rents, 2), "profit_factor": tres(pfs, 3), "por_semilla": por_semilla,
+            "n_mediana": int(statistics.median([x["n"] for x in por_semilla])) if por_semilla else 0,
+            "apagadas": sum(1 for x in por_semilla if x["apagones"] > 0)}
 
 
 # ---------- gates, verdict, warnings (§6.11) ----------
@@ -670,7 +688,9 @@ def puertas(m, res, cfg):
         texto_pf = f"Profit factor: sin pérdidas en {n} operaciones · revisar, huele a mirar al futuro"
     else:
         texto_pf = f"Profit factor {_coma(pf, 2)} · > {_coma(u['profit_factor_min'], 1)}"
-    if p is None:
+    if p is None and (az.get("semillas") or 0) < 1 and n > 0:
+        texto_azar = f"Frente al azar: sin contraste ({az.get('semillas', 0)} semillas; hacen falta al menos 20 para poder bajar de p = 0,05) · p < {_coma(u['p_azar_max'], 2)}"
+    elif p is None:
         texto_azar = f"Frente al azar: sin operaciones · p < {_coma(u['p_azar_max'], 2)}"
     else:
         texto_azar = (f"Frente al azar: mejor que el {_coma(az.get('mejor_que_pct'), 1)} % de {az.get('semillas')} entradas aleatorias "
@@ -757,12 +777,17 @@ def _ruta_indice():
 
 
 def _leer_indice():
-    datos = mercado._leer_json(_ruta_indice(), {"lista": [], "pruebas_total": 0})
+    datos = mercado._leer_json(_ruta_indice(), {"lista": [], "pruebas_total": 0, "intentos": {}})
     if not isinstance(datos, dict):
-        datos = {"lista": [], "pruebas_total": 0}
+        datos = {"lista": [], "pruebas_total": 0, "intentos": {}}
     datos["lista"] = [x for x in (datos.get("lista") or []) if isinstance(x, dict)]
     datos["pruebas_total"] = int(datos.get("pruebas_total") or 0)
+    datos["intentos"] = datos.get("intentos") if isinstance(datos.get("intentos"), dict) else {}
     return datos
+
+
+def _clave_intentos(estrategia_id, par):
+    return f"{estrategia_id}:{par}"
 
 
 def _resumen_de(res):
@@ -785,6 +810,9 @@ def guardar_resultado(res):
         datos["pruebas_total"] += 1
         res["pruebas_total"] = datos["pruebas_total"]
         datos["lista"] = (datos["lista"] + [_resumen_de(res)])[-MAX_INDICE:]
+        # per strategy and pair, a counter that survives the 200-entry cap of the list
+        clave = _clave_intentos(res["estrategia"], res["par"])
+        datos["intentos"][clave] = int(datos["intentos"].get(clave) or 0) + 1
         mercado._escribir_json(_carpeta() / f"{res['id']}.json", res)
         mercado._escribir_json(_ruta_indice(), datos)
     return res["id"]
@@ -800,7 +828,13 @@ def pruebas_total():
 
 
 def intentos_previos(estrategia_id, par):
-    return sum(1 for x in _leer_indice()["lista"] if x.get("estrategia") == estrategia_id and x.get("par") == par)
+    """Backtests already saved for this strategy and pair: the counter of indice.json, or (older index without it)
+    the entries still in its list."""
+    datos = _leer_indice()
+    contador = datos["intentos"].get(_clave_intentos(estrategia_id, par))
+    if contador is not None:
+        return int(contador)
+    return sum(1 for x in datos["lista"] if x.get("estrategia") == estrategia_id and x.get("par") == par)
 
 
 def resultado(id):
@@ -846,15 +880,32 @@ def correr(estrategia, par, desde=None, hasta=None, avisar=print, cfg=None, ahor
     marco = int(est.marco)
     nombre = mercado.nombre_par(par)
     rango = historico.rango_disponible(par, marco)
-    if desde is None or hasta is None:
-        if not rango:
-            raise ValueError(f"No hay histórico de {nombre}: ejecuta python app.py historico en el PC")
-    desde_t = _epoch_fecha(desde) if desde else int(rango[-2])
-    hasta_t = _epoch_fecha(hasta) + 86400 if hasta else int(rango[-1])
+    if not rango:   # with or without dates: nothing to simulate, nothing to save
+        raise ValueError(f"No hay histórico de {nombre}: ejecuta python app.py historico en el PC")
+    rango_desde, rango_hasta = int(rango[0]), int(rango[1])
+    desde_t = _epoch_fecha(desde) if desde else rango_desde
+    hasta_t = _epoch_fecha(hasta) + 86400 if hasta else rango_hasta
     if hasta_t <= desde_t:
         raise ValueError("El rango está vacío: «hasta» tiene que ser posterior a «desde»")
+    # the dates asked for are cut to the data on disk and the result says so: a missing head or tail is not a hole
+    # historico.huecos can see, and the windows, the OOS span and the 2022 / 365-day warnings must describe real bars
+    recortes = []
+    if desde_t < rango_desde:
+        recortes.append(f"El histórico de {nombre} empieza el {_fecha_corta(rango_desde)}: el rango pedido desde "
+                        f"{_fecha_corta(desde_t)} se ha recortado")
+        desde_t = rango_desde
+    if hasta_t > rango_hasta:
+        recortes.append(f"El histórico de {nombre} acaba el {_fecha_corta(rango_hasta - 1)}: el rango pedido hasta "
+                        f"{_fecha_corta(hasta_t - 1)} se ha recortado")
+        hasta_t = rango_hasta
+    if hasta_t <= desde_t:
+        raise ValueError(f"No hay datos de {nombre} entre {_fecha_corta(_epoch_fecha(desde) if desde else rango_desde)} y "
+                         f"{_fecha_corta((_epoch_fecha(hasta) + 86400 if hasta else rango_hasta) - 1)}: el histórico va del "
+                         f"{_fecha_corta(rango_desde)} al {_fecha_corta(rango_hasta - 1)}")
+    for aviso_recorte in recortes:
+        avisar(aviso_recorte)
     desde_txt, hasta_txt = _fecha_utc(desde_t), _fecha_utc(hasta_t - 1)
-    origen = rango[0] if rango and len(rango) == 3 else _intervalo_origen(historico, par, marco)
+    origen = _intervalo_origen(historico, par, marco)
     anos = (hasta_t - desde_t) / (365 * 86400)
     avisar(f"Cargando {_coma(anos, 1)} años de velas"
            + (f" de {origen} min y remuestreando a {marco} min…" if origen and origen != marco else f" de {marco} min…"))
@@ -910,7 +961,7 @@ def correr(estrategia, par, desde=None, hasta=None, avisar=print, cfg=None, ahor
         "desde": desde_txt, "hasta": hasta_txt, "desde_t": desde_t, "hasta_t": hasta_t, "dia": cfg["dia"], "tz": _tz(),
         "cfg": cfg,
         "datos": {"barras": len(utiles), "intervalo_origen": origen, "remuestreado": bool(origen and origen != marco),
-                  "huecos_largos": len(huecos_largos)},
+                  "huecos_largos": len(huecos_largos), "rango_pedido": [desde, hasta], "recortes": recortes},
         "ventanas": wf["ventanas"],
         "oos": {"metricas": m, "puertas": {}, "veredicto": {}, "avisos": [], "desde": oos_desde, "hasta": oos_hasta},
         "is_total": wf["is_total"], "referencias": referencias,
@@ -929,6 +980,7 @@ def correr(estrategia, par, desde=None, hasta=None, avisar=print, cfg=None, ahor
         res["oos"]["avisos"] = avisos(res, cfg)
     else:
         res["oos"]["veredicto"] = veredicto({}, False, motivo)
+    res["oos"]["avisos"] = list(recortes) + res["oos"]["avisos"]
     guardar_resultado(res)
     v = res["oos"]["veredicto"]
     avisar(f"Veredicto: {v['texto']}")

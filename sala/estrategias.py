@@ -262,8 +262,10 @@ class RoturaDia(Estrategia):
         if pos is None:
             a = ctx["atr14"][i]
             mx = ctx["max_dia"][i]
+            # no entries from 21 h on: the exit fires on the first bar at or after 22 h, so a late breakout would be a
+            # one-bar round trip paying both commissions, or (on the day's last bar) a 22 h hold on yesterday's range
             if (memoria.get("dia_entrada") != ctx["dia"][i] and ctx["n_dia"][i] >= params["minimo_barras"]
-                    and mx is not None and c > mx and _atr_ok(a)):
+                    and ctx["hora"][i] < 21 and mx is not None and c > mx and _atr_ok(a)):
                 memoria["dia_entrada"] = ctx["dia"][i]
                 return {"accion": "comprar", "stop": c - params["atr_k"] * a, "objetivo": None}
             return None
@@ -290,9 +292,11 @@ class PicoVolumen(Estrategia):
     def senal(self, i, velas, ctx, pos, params, memoria):
         v = velas[i]
         if pos is None:
-            r = ctx["ratio"][i]
+            m = ctx["mediana_vol"][i]
             a = ctx["atr14"][i]
-            if (r is not None and r >= params["factor"] and v[4] > v[1] and i > 0 and v[4] > velas[i - 1][4]
+            # the same floating-point test as mercado.pico_volumen (not v/m >= factor, which differs by one ulp on
+            # exact multiples); `ratio` stays in ctx for display
+            if (m is not None and m > 0 and not (v[5] < params["factor"] * m) and v[4] > v[1] and i > 0 and v[4] > velas[i - 1][4]
                     and i - memoria.get("i_entrada", -10 ** 9) >= 6 and _atr_ok(a)):
                 memoria["i_entrada"] = i
                 return {"accion": "comprar", "stop": min(v[3], v[4] - 1.0 * a), "objetivo": None}

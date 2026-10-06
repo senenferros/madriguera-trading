@@ -27,7 +27,8 @@ PANEL_HOST = "127.0.0.1"
 PANEL_PORT = 5100   # the shorts panel uses another port, so both can run on the same PC
 
 if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
+    # Windows consoles and redirected output may be cp1252: never die on an accent, replace what cannot be shown
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 
 def cmd_comprobar(_args):
@@ -83,8 +84,9 @@ def cmd_historico(args):
     import requests
     from pathlib import Path
     from sala import historico, mercado
-    pares = args.par or mercado.configuracion()["pares"]
     try:
+        # 'xbteur' on the terminal must be the same pair as the XBTEUR of config.yaml, on disk and in the manifest
+        pares = [historico._par_valido(p) for p in args.par] if args.par else mercado.configuracion()["pares"]
         if args.accion == "importar":
             if not args.ruta:
                 print("Falta la ruta: python app.py historico importar RUTA(.csv o carpeta) [--par XBTEUR] [--intervalo 1]")
@@ -97,7 +99,7 @@ def cmd_historico(args):
                     print(f"No hay ningún <PAR>_<N>.csv de {', '.join(pares)} en {ruta}")
                     return 1
             elif ruta.is_file():
-                resultados = [historico.importar_csv(ruta, par=args.par[0] if args.par else None, intervalo=args.intervalo, desde=desde, hasta=hasta)]
+                resultados = [historico.importar_csv(ruta, par=pares[0] if args.par else None, intervalo=args.intervalo, desde=desde, hasta=hasta)]
             else:
                 print(f"No encuentro {ruta}")
                 return 1
@@ -179,7 +181,7 @@ def _coma(x, d=2, signo=False):
     if x is None:
         return "—"
     s = f"{x:+.{d}f}" if signo else f"{x:.{d}f}"
-    return s.replace("-", "−").replace(".", ",")
+    return s.replace(".", ",")   # plain '-': a redirected cp1252 console cannot print U+2212
 
 
 def _params(p):
@@ -199,7 +201,14 @@ def cmd_backtest(args):
         print(f"No conozco la estrategia «{args.estrategia}». Las que hay: " + ", ".join(estrategias.REGISTRO))
         return 1
     from sala import backtest, mercado
-    par = (args.par or [None])[0] or mercado.configuracion()["pares"][0]
+    pares = mercado.configuracion()["pares"]
+    par = (args.par[0].strip().upper() if args.par and args.par[0] else "") or pares[0]
+    if par not in pares:
+        print(f"El par {par} no está en config.yaml (pares: {', '.join(pares)}): añádelo o elige uno de esos")
+        return 1
+    if args.semillas is not None and args.semillas < 1:
+        print("--semillas tiene que ser al menos 1 (con menos de 20 el contraste de azar nunca baja de p = 0,05)")
+        return 1
     try:
         desde, hasta = _fecha(args.desde, "Fecha desde"), _fecha(args.hasta, "Fecha hasta")
         res = backtest.correr(args.estrategia, par, desde, hasta, avisar=print, semillas=args.semillas)
@@ -227,7 +236,7 @@ def _imprimir_backtest(res, backtest):
     veredicto = oos.get("veredicto") or {}
     print(veredicto.get("texto", "Sin veredicto"))
     for p in (oos.get("puertas") or {}).values():
-        print(f"  {'✓' if p.get('ok') else '✗'} {p.get('texto', '')}")
+        print(f"  {'[ok]' if p.get('ok') else '[NO]'} {p.get('texto', '')}")   # ASCII marks: cp1252 consoles
     ref = res.get("referencias") or {}
     if ref:
         bh, bh30, azar = ref.get("comprar_y_mantener") or {}, ref.get("comprar_y_mantener_30") or {}, ref.get("azar") or {}

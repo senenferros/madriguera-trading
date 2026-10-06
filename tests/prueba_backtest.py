@@ -307,6 +307,22 @@ def prueba_historico_disco():
     ok(len(c60) == 22 and c60 == ref60, "cargar a 60 min: gana la cobertura del 1 min (22 horas, 2 de hueco)")
     ok(historico.rango_disponible("XBTEUR", 60) == (t_ini, fin_1m), "rango_disponible(60) coincide con el del 1 min")
 
+    # a hasta_t beyond the end of the data (--hasta <today> with the history ending at 14:29) must not turn the
+    # minutes of the last, unfinished hour into a "closed" hourly candle; inside the data a missing minute still closes
+    sol = velas_minuto(T_FEB, 60 * 5 + 30)                     # 00:00 .. 05:29
+    sembrar("SOLEUR", 1, sol)
+    c60 = historico.cargar("SOLEUR", T_FEB, T_FEB + 86400, 60)
+    ok(len(c60) == 5 and c60[-1][0] == T_FEB + 4 * 3600, f"cargar a 60 min con hasta_t más allá de los datos: sin el cubo parcial de las 05:00 ({len(c60)} velas)")
+    ok(len(historico.cargar("SOLEUR", T_FEB, T_FEB + 86400, 240)) == 1, "cargar a 240 min: solo el cubo completo")
+    sembrar("SOLEUR", 1, [v for v in velas_minuto(T_FEB + 5 * 3600 + 1800, 30) if v[0] != T_FEB + 6 * 3600 - 60])   # 05:30..05:58
+    c60 = historico.cargar("SOLEUR", T_FEB, T_FEB + 86400, 60)
+    ok(len(c60) == 5 and c60[-1][0] == T_FEB + 4 * 3600, "cargar: la hora que acaba en un minuto sin operaciones al final de los datos tampoco se emite")
+    sembrar("SOLEUR", 1, velas_minuto(T_FEB + 6 * 3600, 60))   # 06:00..06:59: now 05:00 is inside the data and closes
+    c60 = historico.cargar("SOLEUR", T_FEB, T_FEB + 86400, 60)
+    ok(len(c60) == 7 and c60[5][0] == T_FEB + 5 * 3600 and c60[5][5] == 59, "cargar: con datos posteriores la hora de 59 minutos sí es una vela cerrada")
+    shutil.rmtree(nucleo.DATOS_DIR / "historico" / "SOLEUR")
+    historico.reindexar(avisar=lambda m: None)
+
     r = historico.resumen()["XBTEUR"]["1"]
     ok(r["velas"] == 1320 and r["desde"] == "2024-01-31" and r["hasta"] == "2024-02-01", "resumen: velas, desde y hasta")
     ok(r["desde_t"] == t_ini and r["hasta_t"] == fin_1m, "resumen: desde_t y hasta_t")
@@ -330,6 +346,9 @@ def prueba_historico_fuentes():
     ok(640 <= len(cola) <= 720 and not any(v[5] == 0 for v in cola), f"cola OHLC de 1 min sin velas de volumen 0 ({len(cola)} velas)")
     cola60 = historico.cargar("XBTEUR", AHORA - 720 * 3600, AHORA + 3600, 60)
     ok(719 <= len(cola60) <= 720, f"cola OHLC de 60 min completa ({len(cola60)} velas)")
+    reloj = int(time.time())
+    ok(cola and cola[-1][0] + 60 <= reloj and cola60 and cola60[-1][0] + 3600 <= reloj, "cola OHLC: la vela en curso de Kraken (la última de la respuesta) no se guarda, ni en 1 min ni en 60 min")
+    ok(all(v[0] + 60 <= reloj for v in cola) and all(v[0] + 3600 <= reloj for v in cola60), "cola OHLC: solo velas ya cerradas")
     r = historico.resumen()["XBTEUR"]
     ok("ohlc" in r["1"]["fuentes"] and "ohlc" in r["60"]["fuentes"], "resumen ve la fuente ohlc")
     ok(log, "actualizar escribe en el registro")
@@ -388,6 +407,28 @@ def prueba_historico_fuentes():
     vol = sum(v[5] for v in velas)
     ok(r["terminado"] and len(velas) == 150 and 298.0 <= vol <= 300.0 + 1e-6, f"reanuda desde el cursor sin repetir velas (150 velas, volumen {vol:.1f})")
 
+    # several fills of one sweep share a timestamp: when a page ends inside such a group, the next page (Kraken repeats
+    # the cursor trade) must keep the siblings; the trade id, not the time, tells the repeated trade apart
+    T_G = T_TR + 39600                                       # 11 h after T_TR: a minute boundary
+
+    def trades_gemelos(par, desde_ns):
+        ns3 = 3 * 10 ** 9
+        k0 = max(0, -(-(int(desde_ns) - T_G * 10 ** 9) // ns3) * 3)    # first row whose time (T_G + 3*(k//3)) >= desde
+        filas = [[f"{100 + (k % 5)}", "0.1", float(T_G + 3 * (k // 3)), "b", "m", "", k] for k in range(k0, min(k0 + 1000, 6000))]
+        if not filas:
+            return [], str(int(desde_ns))
+        return filas, str(int(filas[-1][2]) * 10 ** 9)
+
+    historico.descargar_trades_fn = trades_gemelos
+    try:
+        r = historico.rellenar_con_trades("XBTEUR", T_G, T_G + 6000, avisar=log.append, cfg=cfg1)
+    finally:
+        historico.descargar_trades_fn = trades_falsos
+    velas = historico.cargar("XBTEUR", T_G, T_G + 6000, 1)
+    vol = sum(v[5] for v in velas)
+    ok(r["terminado"] and len(velas) == 100 and cerca(vol, 600.0, 1e-6), f"operaciones con el mismo instante en el corte de página: ninguna se pierde ni se repite (volumen {vol:.1f} = 0,1 x 6000)")
+    ok(r["llamadas"] >= 6, f"trades gemelos: {r['llamadas']} llamadas")
+
     # CSV import
     t_csv = 1_583_020_800   # 2020-03-01 00:00 UTC, multiple of 300
     orden = [3, 0, 5, 1, 7, 2, 6, 4]
@@ -424,6 +465,15 @@ def prueba_historico_fuentes():
     ok({k: r.get(k) for k in esperado} == esperado and historico.leer_mes("XBTEUR", 5, "2020-03")[0][0] == t_csv, "importar_csv con timestamps en milisegundos: mismo resultado")
     r = historico.importar_carpeta(TMP, ["XBTEUR"], avisar=lambda m: None)
     ok(len(r) == 1 and r[0]["par"] == "XBTEUR" and r[0]["intervalo"] == 5, "importar_carpeta encuentra XBTEUR_5.csv")
+    r = historico.importar_csv(ruta_csv, par="xbteur", avisar=lambda m: None)
+    ok(r["par"] == "XBTEUR" and "xbteur" not in historico.resumen() and not (nucleo.DATOS_DIR / "historico" / "xbteur").exists()
+       and historico.rango_disponible("XBTEUR", 5) is not None, "importar_csv con --par xbteur: mismo par XBTEUR en disco y en el manifiesto")
+    for malo in ("xbt", "XBT/EUR", ""):
+        try:
+            historico.importar_csv(ruta_csv, par=malo, avisar=lambda m: None)
+            ok(malo == "", f"importar_csv con par «{malo}» -> ValueError")   # '' falls back to the file name
+        except ValueError:
+            ok(malo != "", f"importar_csv con par «{malo}» -> ValueError")
     shutil.rmtree(nucleo.DATOS_DIR / "historico" / "XBTEUR" / "5m")
 
     # consolidar_vigia: a closed local day (two days ago, outside the OHLC tail) and today
@@ -441,6 +491,20 @@ def prueba_historico_fuentes():
     ok(not any(v[4] == 12345.0 for v in de_hoy), "consolidar_vigia: las de hoy no se consolidan")
     ok(historico.consolidar_vigia("XBTEUR", avisar=lambda m: None) == 0, "consolidar_vigia: segunda llamada no repite")
     ok(listado(nucleo.DATOS_DIR / "velas") == antes, "consolidar_vigia no toca datos/velas")
+
+    # the watcher stores the candle in progress; stopped at hh:mm:20 the day file keeps 20 s of that minute for ever.
+    # Such a last candle (file written before it closed) is skipped, and the watcher never overwrites a stored candle
+    inicio_c3 = inicio_hoy - 3 * 86400
+    dia_c3 = mercado.dia_local(inicio_c3)
+    fichero = [[inicio_c3 + k * 60, 200.0, 201.0, 199.0, 200.5, 1.0] for k in range(10)] + [[inicio_c3 + 600, 200.5, 200.6, 200.4, 200.55, 0.3]]
+    mercado.guardar_velas("XBTEUR", fichero)
+    ruta_dia = mercado._ruta_velas("XBTEUR", dia_c3)
+    os.utime(ruta_dia, (inicio_c3 + 620, inicio_c3 + 620))    # written 20 s into the last candle
+    historico.guardar("XBTEUR", 1, [[inicio_c3 + 5 * 60, 200.0, 210.0, 190.0, 205.0, 50.0]], fuente="ohlc")   # complete copy of minute 5
+    n = historico.consolidar_vigia("XBTEUR", avisar=lambda m: None)
+    hist = {v[0]: v for v in historico.cargar("XBTEUR", inicio_c3, inicio_c3 + 3600, 1)}
+    ok(inicio_c3 + 600 not in hist and inicio_c3 + 540 in hist and n == 9, f"consolidar_vigia: la última vela del fichero, escrita antes de cerrar, no se copia ({n} velas)")
+    ok(hist[inicio_c3 + 300][2] == 210.0 and hist[inicio_c3 + 300][5] == 50.0, "consolidar_vigia: la copia del vigía nunca pisa una vela ya guardada (fuente ohlc/trades/csv)")
 
     # podar_velas with 0 = never
     dia3 = mercado.dia_local(AHORA - 3 * 86400)
@@ -485,6 +549,55 @@ def prueba_historico_fuentes():
         ok("99999" in str(err) and str(ocupado) in str(err), "ocupar con bloqueo ajeno vivo -> Ocupado (con pid y ruta)")
     ok(ocupado.exists(), "ocupar no borra el bloqueo ajeno")
     ocupado.unlink()
+    for malo in ("xbt", ["XBTEUR", "x"]):
+        try:
+            historico.actualizar(malo, intervalos=[1], dias=0, avisar=lambda m: None, ahora=AHORA)
+            ok(False, f"actualizar con par {malo!r} -> ValueError")
+        except ValueError:
+            ok(True, f"actualizar con par {malo!r} -> ValueError")
+
+    # tramos_pendientes and the Trades orchestration of actualizar (holes inside dias_trades + the tail, verified holes
+    # skipped, the tail never verified): 3 days of 1 min ending 10 min ago with a 2 h hole yesterday and a 30 min gap
+    limpiar_historico()
+    fin_1m = AHORA - 600
+    hueco_a, hueco_b = AHORA - 86400 - 2 * 3600, AHORA - 86400
+    salto = set(range(AHORA - 12 * 3600, AHORA - 12 * 3600 + 1800, 60))
+    tres_dias = velas_minuto(AHORA - 3 * 86400, 3 * 1440 - 10, precio=50.0, saltar=set(range(hueco_a, hueco_b, 60)) | salto)
+    sembrar("XBTEUR", 1, tres_dias)
+    cfg2 = cfg_hist(dias_trades=2)
+    tramos = historico.tramos_pendientes("XBTEUR", AHORA, cfg2)
+    ok(tramos == [(hueco_a, hueco_b), (fin_1m, AHORA - 60)], f"tramos_pendientes: el hueco de 2 h y la cola, no el salto de 30 min ({[(a - AHORA, b - AHORA) for a, b in tramos]})")
+    historico._modificar_estado(lambda est: historico._entrada(est, "XBTEUR", 1).__setitem__("huecos_verificados", [[hueco_a, hueco_b]]))
+    ok(historico.tramos_pendientes("XBTEUR", AHORA, cfg2) == [(fin_1m, AHORA - 60)], "tramos_pendientes: un hueco verificado como vacío no se vuelve a pedir")
+    historico._modificar_estado(lambda est: historico._entrada(est, "XBTEUR", 1).__setitem__("huecos_verificados", []))
+    sin_ohlc = lambda par, intervalo=1, desde=None: []        # noqa: E731 - the OHLC tail would fill the last 12 h itself
+    mercado.descargar_fn = sin_ohlc
+    historico.descargar_trades_fn = lambda par, desde_ns: ([], str(int(desde_ns)))
+    try:
+        r = historico.actualizar("XBTEUR", intervalos=[1], dias=2, avisar=lambda m: None, ahora=AHORA)["XBTEUR"]
+        verificados = historico._entrada(historico._leer_estado(), "XBTEUR", 1)["huecos_verificados"]
+        ok(r["trades"]["tramos"] == 2 and r["trades"]["terminado"] and r["trades"]["velas"] == 0 and not r["error"], f"actualizar: dos tramos por Trades, cinta vacía ({r['trades']})")
+        ok(verificados == [[hueco_a, hueco_b]], f"actualizar: el hueco vacío queda verificado y la cola nunca ({verificados})")
+        ok(historico.tramos_pendientes("XBTEUR", AHORA, cfg2) == [(fin_1m, AHORA - 60)], "actualizar: después solo queda la cola por pedir")
+
+        def cinta(par, desde_ns):   # one trade every 30 s inside the hole only
+            t0 = max(hueco_a, -(-int(desde_ns) // 10 ** 9))
+            filas = [[f"{60 + (t % 7)}", "0.5", float(t), "b", "m", "", t] for t in range(t0 - t0 % 30 + (30 if t0 % 30 else 0), hueco_b, 30)][:1000]
+            return (filas, str(int(filas[-1][2]) * 10 ** 9)) if filas else ([], str(int(desde_ns)))
+
+        historico.descargar_trades_fn = cinta
+        historico._modificar_estado(lambda est: historico._entrada(est, "XBTEUR", 1).__setitem__("huecos_verificados", []))
+        r = historico.actualizar("XBTEUR", intervalos=[1], dias=2, avisar=lambda m: None, ahora=AHORA)["XBTEUR"]
+        en_hueco = historico.cargar("XBTEUR", hueco_a, hueco_b, 1)
+        ok(r["trades"]["tramos"] == 2 and len(en_hueco) == 120 and cerca(sum(v[5] for v in en_hueco), 120.0, 1e-6), f"actualizar: el hueco se rellena con Trades (120 velas, volumen 0,5 x 240) ({len(en_hueco)})")
+        ok(not historico.huecos(historico.cargar("XBTEUR", AHORA - 2 * 86400, fin_1m, 1), 1, 3600), "actualizar: sin huecos > 1 h en los dos días")
+        ok(historico._entrada(historico._leer_estado(), "XBTEUR", 1)["huecos_verificados"] == [] and not (nucleo.DATOS_DIR / "historico" / "XBTEUR" / "cursor_trades.json").exists(),
+           "actualizar: un hueco con operaciones no se marca como verificado y no queda cursor")
+        r = historico.actualizar("XBTEUR", intervalos=[1], dias=2, avisar=lambda m: None, ahora=AHORA, max_llamadas=0)["XBTEUR"]
+        ok(r["trades"]["terminado"] is False and r["trades"]["llamadas"] == 0, "actualizar con max_llamadas=0: sin terminar, nada verificado")
+    finally:
+        mercado.descargar_fn = exchange_historico
+        historico.descargar_trades_fn = trades_falsos
 
     # validar on a clean pair: 3 h of 1 min + native 60m equal to its resampling, plus the watcher's candles
     t_v = (AHORA - 3 * 86400) // 3600 * 3600
@@ -551,6 +664,13 @@ def prueba_motor():
     r = backtest.simular([b0, b1, barra(2, 109, 110, 99, 105)], fija(con_obj), {}, CFG)
     op = r["operaciones"][0]
     ok(op["salida"] == 109.0 and cerca(op["R"], 1.026, 0.001), "objetivo: abre por encima -> se llena al open")
+    # a bar that opens above the target and later dips through the stop: the resting limit sell filled at the open,
+    # before any price below it printed; only the intrabar "both touched" case is ambiguous (and there the stop wins)
+    r = backtest.simular([b0, b1, barra(2, 110, 112, 94, 100)], fija(con_obj), {}, CFG)
+    op = r["operaciones"][0]
+    ok(op["motivo"] == "objetivo" and op["salida"] == 110.0 and op["R"] > 1, f"hueco por encima del objetivo que luego toca el stop: se llena al open ({op['motivo']} {op['salida']})")
+    r = backtest.simular([b0, b1, barra(2, 94, 112, 93, 100)], fija(con_obj), {}, CFG)
+    ok(r["operaciones"][0]["motivo"] == "stop" and cerca(r["operaciones"][0]["salida"], 94 * 0.999, 1e-9), "hueco por debajo del stop que luego toca el objetivo: stop al open")
 
     trailing = {0: {"accion": "comprar", "stop": 95}, 1: {"stop": 98}, 2: {"stop": 97}}
     r = backtest.simular([b0, b1, barra(2, 101, 102, 100, 101), barra(3, 99, 99.5, 97.5, 98)], fija(trailing), {}, CFG)
@@ -594,6 +714,11 @@ def prueba_motor():
     ok(cerca(r["capital_final"], 10000 * 0.99 ** 13, 0.01) and r["estado"]["apagado"] is True, "regla 4: capital final 8.775 y estado apagado")
     r2 = backtest.simular(velas, fija(ordenes), {}, cfg4, estado=r["estado"])
     ok(r2["operaciones"] == [] and r2["estado"]["apagado"] is True, "regla 4: con el estado apagado arrastrado no entra ninguna orden")
+    # rule 3 carried across a window boundary that falls inside a day with the daily stop already tripped
+    dia_t0 = estrategias.dia_de(T0, "utc")
+    r3 = backtest.simular([barra(k, 100, 101, 94, 100) for k in range(30)], fija({0: {"accion": "comprar", "stop": 95}, 24: {"accion": "comprar", "stop": 95}}), {}, CFG,
+                          estado={"pico": 10000.0, "apagado": False, "parado_dia": dia_t0, "inicio_dia": 10000.0, "dia": dia_t0})
+    ok([o["entrada_i"] for o in r3["operaciones"]] == [25], f"regla 3: el día parado arrastrado en `estado` bloquea las compras de ese día, no las del siguiente ({[o['entrada_i'] for o in r3['operaciones']]})")
     velas = [barra(k, 100, 101, 94, 100) for k in range(24 * 12 + 1)] + [barra(24 * 12 + 1, 100, 100.5, 90.2, 90.5), barra(24 * 12 + 2, 90.5, 91, 90, 90.5), barra(24 * 12 + 3, 90.5, 91, 90, 90.5)]
     ordenes = {24 * d: {"accion": "comprar", "stop": 95} for d in range(12)}
     ordenes[24 * 12] = {"accion": "comprar", "stop": 90}
@@ -609,6 +734,7 @@ def prueba_motor():
     r = backtest.simular(tres[:3], fija({0: {"accion": "comprar", "stop": 90}}), {}, CFG)
     op = r["operaciones"][0]
     ok(op["motivo"] == "fin" and cerca(op["salida"], 100 * 0.9995, 1e-9) and op["comisiones"] > 0, "posición abierta al final: cierre 'fin' con costes")
+    ok(cerca(r["curva"][-1][1], r["capital_final"], 1e-9) and r["curva"][-1][1] < 10000 - op["comisiones"] + 1e-9, "cierre 'fin': el último punto de la curva es el capital neto tras pagar la salida")
 
     # equity curve
     velas = [barra(k, 100, 101, 99, 100 + k * 0.1) for k in range(10)]
@@ -717,6 +843,24 @@ def prueba_metricas_wf():
         bien &= all(o["salida_t"] == ultimo_t for o in de_k if o["motivo"] == "fin")
     ok(bien, "walk_forward: operaciones dentro de su OOS, pnl por ventana y cierre forzoso 'fin' al final")
     ok(cerca(wf["capital_final"], CFG["capital_inicial"] + sum(o["pnl"] for o in ops), 2.0), "walk_forward: capital cosido = capital inicial + suma de pnl")
+    # a strategy that holds every position to the window's end: metricas() must charge the last forced close too
+    def mantiene(i, velas, ctx, pos, params, memoria):
+        if pos is None and (velas[i][0] % 86400) == 50 * 900:
+            return {"accion": "comprar", "stop": velas[i][4] * 0.9}
+        return None
+
+    wf_fin = backtest.walk_forward(rot, estrategias.EstrategiaFija(mantiene, marco=15, calentamiento=0), CFG, T0, T0 + 420 * 86400, avisar=lambda m: None)
+    ops_fin = wf_fin["operaciones"]
+    m_fin = backtest.metricas(ops_fin, wf_fin["curva"], CFG["capital_inicial"], CFG)
+    ok(ops_fin and all(o["motivo"] == "fin" for o in ops_fin) and len(ops_fin) == 4, f"walk_forward: una posición por ventana cerrada por 'fin' ({[o['motivo'] for o in ops_fin]})")
+    ok(cerca(m_fin["capital_final"], round(wf_fin["capital_final"], 2), 0.011) and cerca(wf_fin["curva"][-1][1], wf_fin["capital_final"], 1e-6)
+       and cerca(m_fin["rentabilidad_neta_pct"], (wf_fin["capital_final"] / CFG["capital_inicial"] - 1) * 100, 0.011),
+       f"metricas: capital_final y rentabilidad neta pagan el cierre forzoso de la última ventana ({m_fin['capital_final']} vs {round(wf_fin['capital_final'], 2)})")
+    ok(backtest._motivo_defecto([{"n": 51, "apagones": 1}, {"n": 60, "apagones": 2}], 30) == "todas las combinaciones se apagaron dentro de muestra (regla 4)"
+       and backtest._motivo_defecto([{"n": 5, "apagones": 0}, {"n": 60, "apagones": 1}], 30) == "1 de 2 combinaciones se apagaron dentro de muestra y el resto no llegó al mínimo de 30 operaciones"
+       and backtest._motivo_defecto([{"n": 5, "apagones": 0}], 30) == "ninguna combinación llegó al mínimo de 30 operaciones", "seleccionar: el motivo del «por defecto» distingue apagados de pocas operaciones")
+    ok(backtest.configuracion({"backtest": {"semillas_azar": 0, "semillas_azar_panel": -3}})["semillas_azar"] == 200
+       and backtest.configuracion({"backtest": {"semillas_azar_panel": 0}})["semillas_azar_panel"] == 50, "configuracion: semillas < 1 vuelven al defecto")
     ok(wf["is_total"]["n"] > 0 and wf["apagones"] == 0, "walk_forward: is_total y sin apagados")
     wf2 = backtest.walk_forward(rot, est, cfg_bt(apagado_pct=0.01), T0, T0 + 420 * 86400, avisar=lambda m: None)
     ok(wf2["ventanas"][0]["oos_m"]["apagones"] == 1 and wf2["apagones"] == 1 and sum(v["oos_m"]["n"] for v in wf2["ventanas"][1:]) == 0, "walk_forward: el apagado se arrastra entre ventanas")
@@ -786,6 +930,12 @@ def prueba_estrategias():
     ctx = pv.preparar(plana5, pv.defecto, "utc")
     iguales = all((ctx["ratio"][i] is not None and ctx["ratio"][i] >= 3) == (mercado.pico_volumen(plana5[:i + 1], 3, 48) is not None) for i in range(len(plana5)))
     ok(iguales, "pico_volumen: misma definición que la alerta del vigía (mercado.pico_volumen)")
+    # an exact multiple at 8 decimals: v/m is one ulp below 3 while mercado's `not (v < 3*m)` says yes
+    ulp = [[T0 + k * 300, 100.0, 100.5, 99.5, 100.0, 25.3767123] for k in range(48)] + [[T0 + 48 * 300, 100.0, 101.0, 99.5, 100.8, 76.1301369]]
+    ctx_u = pv.preparar(ulp, pv.defecto, "utc")
+    s = pv.senal(48, ulp, ctx_u, None, pv.defecto, {})
+    ok((s is not None and s.get("accion") == "comprar") == (mercado.pico_volumen(ulp, 3, 48) is not None) and s is not None,
+       f"pico_volumen: en un múltiplo exacto del factor decide igual que mercado.pico_volumen (ratio {ctx_u['ratio'][48]!r})")
 
     rd = estrategias.REGISTRO["rotura_dia"]
     rot = serie_sintetica(60, 15, 9, "rotura")
@@ -798,6 +948,17 @@ def prueba_estrategias():
     ok(len(senales) >= 30 and all(hora_utc(o["salida_t"]) == 22 for o in senales), "rotura_dia: salida por señal a las 22 h del día de entrada")
     ok(any(o["motivo"] == "stop" for o in ops) and all(o["motivo"] in ("senal", "stop", "fin") for o in ops), "rotura_dia: los días falsos salen por stop")
     ok(all(o["objetivo"] is None for o in ops), "rotura_dia: sin objetivo")
+    # no entries from 21 h: a breakout on the 22:00 bar would buy at 22:15 and sell at 22:30 (one-bar round trip), and
+    # one on the 23:45 bar would buy at 00:00 and sit 22 h on yesterday's range
+    def dia_con_rotura(j_rotura):
+        base = [[T0 + 86400 + j * 900, 100.0, 100.5, 99.5, 100.0, 1.0] for j in range(96)]
+        base[j_rotura][4], base[j_rotura][2] = 101.0, 101.2
+        return [[T0 + j * 900, 100.0, 100.5, 99.5, 100.0, 1.0] for j in range(96)] + base
+    for j, hora, entra in ((88, "22:00", False), (95, "23:45", False), (83, "20:45", True), (50, "12:30", True)):
+        serie = dia_con_rotura(j)
+        ctx_r = rd.preparar(serie, rd.defecto, "utc")
+        s = rd.senal(96 + j, serie, ctx_r, None, rd.defecto, {})
+        ok((s is not None) == entra, f"rotura_dia: rotura a las {hora} UTC -> {'entra' if entra else 'no entra'}")
 
     dc = estrategias.REGISTRO["donchian"]
     velas = [barra(k, 100, 100.5, 99.5, 100, marco=240) for k in range(100)]
@@ -836,6 +997,13 @@ def prueba_veredicto():
         return None
 
     limpiar_historico()
+    for fechas in ((None, None), ("2024-01-01", None), ("2024-01-01", "2025-06-01")):
+        try:
+            backtest.correr("rotura_dia", "XBTEUR", *fechas, avisar=lambda m: None, semillas=5, cfg=CFG)
+            ok(False, f"sin histórico, correr{fechas} -> ValueError")
+        except ValueError as err:
+            ok("No hay histórico" in str(err), f"sin histórico, correr{fechas} -> ValueError «{err}»")
+    ok(backtest.pruebas_total() == 0 and not (nucleo.DATOS_DIR / "backtests").exists(), "sin histórico: no se guarda ni cuenta ningún backtest, con o sin fechas")
     plana = serie_sintetica(420, 15, 7, "plana")
     sembrar("XBTEUR", 15, plana)
     mala = estrategias.EstrategiaFija(cada_barra, marco=15, calentamiento=15, ctx=lambda velas: {"atr": estrategias.atr(velas, 14)})
@@ -926,6 +1094,72 @@ def prueba_veredicto():
     sec = next((s for s in inf.secciones if s["titulo"] == "Backtests"), None)
     ok(sec is not None and any("rotura" in (i["nombre"] + i["detalle"]).lower() or "BTC/EUR" in (i["nombre"] + i["detalle"]) for i in sec["items"]), "comprobar(inf) añade Backtests con el último")
 
+    # explicit dates: cut to the data on disk (and said so), never a window on bars that do not exist
+    base = correr("rotura_dia", "XBTEUR", semillas=5, cfg=CFG)
+    r_desde = correr("rotura_dia", "XBTEUR", "2022-01-01", None, semillas=5, cfg=CFG)
+    ok(r_desde["desde"] == "2024-01-01" and len(r_desde["ventanas"]) == len(base["ventanas"]) == 4 and r_desde["oos"]["desde"] == base["oos"]["desde"],
+       f"desde 2022 con datos desde 2024: recortado a los datos, mismas 4 ventanas ({r_desde['desde']}, {len(r_desde['ventanas'])} ventanas)")
+    ok(any("se ha recortado" in a for a in r_desde["oos"]["avisos"]) and any("2022" in a and "no incluye" in a for a in r_desde["oos"]["avisos"]),
+       f"desde 2022: aviso del recorte y sigue el aviso de que no incluye 2022 ({r_desde['oos']['avisos']})")
+    ok(r_desde["datos"]["rango_pedido"] == ["2022-01-01", None] and r_desde["datos"]["recortes"], "desde 2022: el resultado guarda el rango pedido y el recorte")
+    r_hasta = correr("rotura_dia", "XBTEUR", None, "2026-12-31", semillas=5, cfg=CFG)
+    ok(r_hasta["hasta"] == base["hasta"] and len(r_hasta["ventanas"]) == 4 and any("365" in a for a in r_hasta["oos"]["avisos"]) and any("se ha recortado" in a for a in r_hasta["oos"]["avisos"]),
+       f"hasta 2026 con datos hasta 2025: recortado, 4 ventanas y el aviso de menos de 365 días sigue ({r_hasta['hasta']}, {len(r_hasta['ventanas'])})")
+    r_fechas = correr("rotura_dia", "XBTEUR", "2024-01-15", "2025-02-20", semillas=5, cfg=CFG)
+    ok(r_fechas["desde"] == "2024-01-15" and r_fechas["hasta"] == "2025-02-20" and len(r_fechas["ventanas"]) == 4 and not r_fechas["datos"]["recortes"]
+       and r_fechas["operaciones"] and r_fechas["operaciones"][0]["entrada_t"] >= backtest._epoch_fecha("2024-01-15") + 180 * 86400
+       and r_fechas["ventanas"][0]["is"][0] == backtest._epoch_fecha("2024-01-15"), f"fechas dentro de los datos: se respetan ({r_fechas['desde']} → {r_fechas['hasta']}, {len(r_fechas['ventanas'])} ventanas)")
+    antes_total = backtest.pruebas_total()
+    for desde_m, hasta_m, texto in (("2020-01-01", "2020-06-01", "fuera del histórico"), ("2025-01-01", "2024-06-01", "rango vacío")):
+        try:
+            backtest.correr("rotura_dia", "XBTEUR", desde_m, hasta_m, avisar=lambda m: None, semillas=5, cfg=CFG)
+            ok(False, f"correr con fechas {texto} -> ValueError")
+        except ValueError as err:
+            ok("histórico" in str(err) or "vacío" in str(err), f"correr con fechas {texto} -> ValueError ({err})")
+    ok(backtest.pruebas_total() == antes_total, "correr con fechas imposibles no guarda ni cuenta nada")
+    r_az = backtest.puertas({"n": 150, "profit_factor": 1.5, "max_drawdown_pct": 5, "expectativa_R": 0.2, "expectativa_pct": 0.1, "apagones": 0},
+                            {"referencias": {"azar": {"p_azar": None, "semillas": 0}}, "ventanas": [{"oos_m": {"pnl": 1}}] * 4}, CFG)["azar"]
+    ok(not r_az["ok"] and "sin contraste" in r_az["texto"] and "sin operaciones" not in r_az["texto"], f"puertas: con 0 semillas dice «sin contraste», no «sin operaciones» ({r_az['texto']})")
+
+    # the gates and warnings as pure functions: the failing direction of drawdown, consistencia and apagado
+    p_mal = backtest.puertas({"n": 150, "profit_factor": 1.5, "max_drawdown_pct": 25, "expectativa_R": 0.2, "expectativa_pct": 0.1, "apagones": 1},
+                             {"referencias": {"azar": {"p_azar": 0.01, "mejor_que_pct": 99, "semillas": 50}}, "ventanas": [{"oos_m": {"pnl": -1}}] * 3 + [{"oos_m": {"pnl": 1}}]}, CFG)
+    ok([k for k, g in p_mal.items() if not g["ok"]] == ["drawdown", "consistencia", "apagado"], f"puertas: fallan drawdown 25 %, consistencia 1 de 4 y apagado 1; pasan las otras cuatro ({[k for k, g in p_mal.items() if not g['ok']]})")
+    ok(p_mal["consistencia"]["valor"] == 0.25 and "1 de 4" in p_mal["consistencia"]["texto"] and p_mal["drawdown"]["valor"] == 25, "puertas: valores y textos de las que fallan")
+    p_borde = backtest.puertas({"n": 100, "profit_factor": 1.3, "max_drawdown_pct": 20, "expectativa_R": 0.0, "expectativa_pct": 0.1, "apagones": 0},
+                               {"referencias": {"azar": {"p_azar": 0.05, "mejor_que_pct": 95, "semillas": 50}}, "ventanas": [{"oos_m": {"pnl": 1}}, {"oos_m": {"pnl": -1}}]}, CFG)
+    ok([k for k, g in p_borde.items() if g["ok"]] == ["consistencia", "apagado"], f"puertas: los umbrales son estrictos (n = 100, PF 1,3, MDD 20, E_R 0, p 0,05 fallan; consistencia 50 % y apagado 0 pasan) ({[k for k, g in p_borde.items() if g['ok']]})")
+    res_av = {"oos": {"metricas": {"expectativa_R": 0.1, "profit_factor": 1.5, "rechazadas": 3}}, "is_total": {"expectativa_R": 0.4},
+              "ventanas": [{"oos": [backtest._epoch_fecha("2021-06-01"), backtest._epoch_fecha("2022-05-01")], "parametros": {"a": k}} for k in range(3)], "intentos_previos": 0}
+    av = backtest.avisos(res_av, CFG)
+    ok(any("menos de la mitad" in a for a in av) and any("rechazadas: 3" in a for a in av) and any("Parámetros distintos" in a for a in av) and any("365" in a for a in av),
+       f"avisos: degradación IS→OOS, rechazadas, parámetros distintos y < 365 días ({av})")
+    ok(not any("2022" in a for a in av) and not any("por defecto" in a for a in av) and not any("backtests de esta" in a for a in av), "avisos: con 2022 dentro del rango no avisa de 2022; sin por defecto ni intentos previos")
+    res_av["ventanas"][0]["oos"] = [backtest._epoch_fecha("2023-01-01"), backtest._epoch_fecha("2023-06-01")]
+    res_av["ventanas"][-1]["oos"] = [backtest._epoch_fecha("2024-01-01"), backtest._epoch_fecha("2024-06-01")]
+    av = backtest.avisos(res_av, CFG)
+    ok(any("2022" in a for a in av) and not any("365" in a for a in av), "avisos: rango 2023-2024 avisa de 2022 y no de los 365 días")
+
+    # truncation of the saved trade list and the 200-entry cap of the index (with the per-pair counter surviving it)
+    r_trunc = correr("rotura_dia", "XBTEUR", semillas=5, cfg=cfg_bt(max_operaciones_guardadas=10))
+    ok(len(r_trunc["operaciones"]) == 10 and r_trunc["operaciones_truncadas"] is True and r_trunc["operaciones_total"] > 10
+       and r_trunc["operaciones"][-1]["salida_t"] == max(o["salida_t"] for o in r_trunc["operaciones"]), "max_operaciones_guardadas=10: se guardan las 10 últimas y se marca truncado")
+    datos_antes = nucleo.DATOS_DIR
+    nucleo.DATOS_DIR = TMP / "datos_indice"
+    try:
+        for k in range(201):
+            stub = {"id": f"20250101-{k:06d}-rsi-ETHEUR" if k < 60 else f"20250101-{k:06d}-bandas-XBTEUR", "ts": k, "fecha": "", "estrategia": "rsi" if k < 60 else "bandas",
+                    "titulo": "", "par": "ETHEUR" if k < 60 else "XBTEUR", "nombre_par": "", "marco": 15, "ventanas": [],
+                    "oos": {"metricas": {}, "desde": "", "hasta": "", "veredicto": {"clave": "no_pasa", "texto": ""}}, "referencias": {}}
+            backtest.guardar_resultado(stub)
+        ind_lista = backtest._leer_indice()["lista"]
+        ok(len(ind_lista) == 200 and ind_lista[0]["ts"] == 1 and backtest.pruebas_total() == 201, f"indice: 201 guardados -> lista de 200 (la más vieja fuera) y pruebas_total 201 ({len(ind_lista)})")
+        ok(backtest.intentos_previos("rsi", "ETHEUR") == 60 and backtest.intentos_previos("bandas", "XBTEUR") == 141 and backtest.intentos_previos("rsi", "XBTEUR") == 0,
+           f"intentos_previos: contador por estrategia y par que sobrevive al tope de 200 ({backtest.intentos_previos('rsi', 'ETHEUR')})")
+    finally:
+        nucleo.DATOS_DIR = datos_antes
+
+
 
 # =====================================================================================================================
 # 9.7 Panel: backtest
@@ -945,9 +1179,11 @@ class BotFalso:
 
 
 def prueba_panel():
+    global CORRER_N
     app = panel.crear_panel(vigia=False, bot=BotFalso())
     app.config["TESTING"] = True
     lanzados = []
+    lanzar_backtest_real, lanzar_historico_real = app.lanzar_backtest, app.lanzar_historico
     app.lanzar_backtest = lambda *a: lanzados.append(a)
     app.lanzar_historico = lambda: None
     app.lanzar_calendario = lambda: None
@@ -994,6 +1230,52 @@ def prueba_panel():
     html = r.get_data(as_text=True)
     ok(r.status_code == 200 and "Histórico" in html and "Backtests" in html, "GET /comprobar con Histórico y Backtests")
 
+    # a refused launch (one already running) is not reported as launched
+    app.lanzar_backtest = lambda *a: False
+    app.lanzar_historico = lambda: False
+    r = c.post("/backtest", base_url=BASE, data={**datos, "_csrf": csrf, "ajax": "1"})
+    ok(r.status_code == 409 and r.json["ok"] is False and "en marcha" in r.json["error"], "POST /backtest con otro en marcha -> 409 y error en español")
+    r = c.post("/backtest", base_url=BASE, data={**datos, "_csrf": csrf}, follow_redirects=True)
+    ok(r.status_code == 200 and "en marcha" in r.get_data(as_text=True), "POST /backtest sin ajax con otro en marcha: aviso de error en la página")
+    r = c.post("/historico", base_url=BASE, data={"_csrf": csrf, "ajax": "1"})
+    ok(r.status_code == 409 and r.json["ok"] is False, "POST /historico con otro en marcha -> 409")
+
+    # the real job bodies: a backtest through the panel (semillas_azar_panel) and the history job against a foreign lock
+    def esperar(clave, segundos=60):
+        fin = time.time() + segundos
+        while time.time() < fin:
+            r = c.get("/backtest/estado", base_url=BASE).json
+            if r[clave] and r[clave]["estado"] != "corriendo":
+                return r
+            time.sleep(0.2)
+        return c.get("/backtest/estado", base_url=BASE).json
+
+    ok(lanzar_backtest_real("rotura_dia", "XBTEUR", "", "") is True and lanzar_backtest_real("rotura_dia", "XBTEUR", "", "") is False, "lanzar_backtest real: True al lanzar, False con uno en marcha")
+    est = esperar("trabajo")
+    tr = est["trabajo"]
+    ok(tr["estado"] == "ok" and tr["id"] and backtest.RE_ID.fullmatch(tr["id"]) and any("Veredicto" in l for l in tr["log"]), f"lanzar_backtest real: termina en ok con id y registro ({tr['estado']}, {tr['log'][-1:]})")
+    CORRER_N += 1
+    res_panel = backtest.resultado(tr["id"])
+    ok(res_panel is not None and res_panel["referencias"]["azar"]["semillas"] == backtest.configuracion()["semillas_azar_panel"], "lanzar_backtest real: usa semillas_azar_panel")
+    est = c.get("/backtest/estado", base_url=BASE).json   # the poll that saw the job end may carry an index read a moment earlier
+    ok(est["pruebas_total"] == CORRER_N and est["indice"][0]["id"] == tr["id"], f"GET /backtest/estado tras el backtest del panel: total e índice al día ({est['pruebas_total']} vs {CORRER_N})")
+    for par in mercado.configuracion()["pares"]:
+        mercado._escribir_json(nucleo.DATOS_DIR / "historico" / par / "ocupado.json", {"pid": 4242, "inicio": time.time(), "latido": time.time()})
+    try:
+        ok(c.get("/backtest/estado", base_url=BASE).json["ocupado"] is True, "GET /backtest/estado: con ocupado.json ajeno vivo, ocupado True")
+        ok(lanzar_historico_real() is True, "lanzar_historico real: True al lanzar")
+        est = esperar("trabajo_hist")
+        th = est["trabajo_hist"]
+        ok(th["estado"] == "error" and sum("Otro proceso" in l for l in th["log"]) == len(mercado.configuracion()["pares"]) + 1,
+           f"lanzar_historico real contra un bloqueo ajeno: error, una línea por par más el resumen, sin repetirla ({th['log']})")
+        html = c.get("/comprobar", base_url=BASE).get_data(as_text=True)
+        ok("Bloqueo" in html and "4242" in html, "GET /comprobar muestra el bloqueo ajeno")
+    finally:
+        for par in mercado.configuracion()["pares"]:
+            (nucleo.DATOS_DIR / "historico" / par / "ocupado.json").unlink(missing_ok=True)
+    with historico.ocupar("XBTEUR"):
+        ok(c.get("/backtest/estado", base_url=BASE).json["ocupado"] is False, "GET /backtest/estado: el bloqueo del propio proceso (el trabajo del panel) no cuenta como «otro proceso»")
+
 
 # =====================================================================================================================
 # 9.8 CLI
@@ -1028,6 +1310,30 @@ def prueba_cli():
     ok(codigo in (0, 2, 3), f"CLI: backtest rotura_dia -> {codigo}")
     ok(any(v in texto for v in backtest.VEREDICTOS.values()) and backtest.AVISO_HONESTO in texto, "CLI: imprime el veredicto y el aviso honesto")
     ok("Guardado en" in texto, "CLI: dice dónde ha guardado el resultado")
+    ok("[ok]" in texto or "[NO]" in texto, "CLI: marcas ASCII en las puertas")
+    ok("✓" not in texto and "✗" not in texto and app_mod._coma(-1.5, 2, True) == "-1,50" and app_mod._coma(-0.5) == "-0,50", "CLI: marcas y signo menos ASCII en lo que imprime app.py (los textos de las puertas van por stdout en utf-8 con errors=replace)")
+    codigo, texto = main_con(["backtest", "rotura_dia", "--par", "dogeeur", "--semillas", "5"])
+    ok(codigo == 1 and "config.yaml" in texto, f"CLI: backtest con un par fuera de config.yaml -> 1 ({codigo})")
+    codigo, texto = main_con(["backtest", "rotura_dia", "--par", "xbteur", "--semillas", "0"])
+    ok(codigo == 1 and "--semillas" in texto, f"CLI: --semillas 0 -> 1 con explicación ({codigo})")
+    codigo, texto = main_con(["backtest", "rotura_dia", "--par", "xbteur", "--semillas", "-5"])
+    ok(codigo == 1 and "--semillas" in texto, "CLI: --semillas negativo -> 1")
+    codigo, texto = main_con(["backtest", "rotura_dia", "--par", "xbteur", "--semillas", "5"])
+    CORRER_N += 1
+    ok(codigo in (0, 2, 3) and "BTC/EUR" in texto, f"CLI: --par xbteur se normaliza a XBTEUR ({codigo})")
+    codigo, texto = main_con(["historico", "validar", "--par", "xbt"])
+    ok(codigo == 1 and "Par no válido" in texto, "CLI: historico con un par imposible -> 1")
+
+    # the panel's switches rewrite config.yaml: the section comments must survive
+    nucleo.CONFIG.write_text("# Configuración de la sala. Se edita desde el panel o a mano.\nnombre: Prueba\npares:\n- XBTEUR\n- ETHEUR\n"
+                             "# Histórico de Kraken: python app.py historico\nhistorico:\n  dias_trades: 90\n"
+                             "# Backtest: comisión taker de Kraken Pro 0,40 % (maker 0,25); cámbiala si operas con limitadas\nbacktest:\n  comision_pct: 0.4\n", encoding="utf-8")
+    cfg_c = nucleo.cambiar_automatico("velas", False)
+    texto_cfg = nucleo.CONFIG.read_text(encoding="utf-8")
+    ok("# Histórico de Kraken: python app.py historico" in texto_cfg and "# Backtest: comisión taker de Kraken Pro 0,40 %" in texto_cfg, "guardar_config conserva los comentarios de historico y backtest")
+    ok(texto_cfg.index("# Histórico") < texto_cfg.index("historico:") < texto_cfg.index("# Backtest") < texto_cfg.index("backtest:"), "guardar_config: cada comentario justo encima de su sección")
+    ok(cfg_c["automatico"]["velas"] is False and nucleo.cargar_config()["backtest"]["comision_pct"] == 0.4 and nucleo.cargar_config()["nombre"] == "Prueba", "guardar_config: valores intactos y el interruptor cambiado")
+    nucleo.CONFIG.unlink()
 
 
 # =====================================================================================================================
