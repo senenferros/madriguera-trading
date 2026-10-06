@@ -13,6 +13,8 @@ Usage:
                                check the files on disk (and, with --red, against Kraken's daily candles)
     python app.py historico reindexar
                                rebuild datos/historico/estado.json from the files
+    python app.py historico derivar [--par XBTEUR] [--intervalos 60,1440]
+                               rebuild the 60 and 1440-minute candles from the 1-minute ones (after a Trades backfill)
     python app.py backtest ESTRATEGIA [--par XBTEUR] [--desde AAAA-MM-DD] [--hasta AAAA-MM-DD] [--semillas 200]
                                walk-forward backtest, judged out of sample; exit code 0 PASA, 2 NO PASA, 3 INSUFICIENTE
     python app.py backtest --lista
@@ -134,6 +136,12 @@ def cmd_historico(args):
                         historico.validar_red(par)
                     except (requests.RequestException, RuntimeError, ValueError) as err:
                         print(f"  Sin Kraken: {type(err).__name__ if isinstance(err, requests.RequestException) else err}")
+            return 0
+        if args.accion == "derivar":
+            for par in pares:
+                out = historico.derivar(par, args.intervalos.split(",") if args.intervalos else None)
+                print(f"{mercado.nombre_par(par)}: " + ", ".join(f"{d} min {n} velas derivadas" for d, n in out.items()))
+            _imprimir_resumen(historico, mercado)
             return 0
         if args.accion == "reindexar":
             historico.reindexar()
@@ -265,12 +273,12 @@ def main():
     p.add_argument("--sin-navegador", action="store_true", help="No abrir el navegador")
     sub.add_parser("vigilar", help="Una pasada del vigía y el parte del día, por pantalla")
     sub.add_parser("comprobar", help="Revisa exchange, datos y Telegram")
-    h = sub.add_parser("historico", help="Histórico de velas de Kraken: actualizar, importar CSV, validar, reindexar")
-    h.add_argument("accion", nargs="?", choices=["actualizar", "importar", "validar", "reindexar"], default="actualizar")
+    h = sub.add_parser("historico", help="Histórico de velas de Kraken: actualizar, importar CSV, validar, reindexar, derivar")
+    h.add_argument("accion", nargs="?", choices=["actualizar", "importar", "validar", "reindexar", "derivar"], default="actualizar")
     h.add_argument("ruta", nargs="?", help="Fichero .csv o carpeta con <PAR>_<N>.csv (solo importar)")
     h.add_argument("--par", action="append", help="Par de Kraken (XBTEUR); repetible; por defecto los de config.yaml")
     h.add_argument("--dias", type=int, help="Días hacia atrás que revisa el relleno por Trades (config: dias_trades)")
-    h.add_argument("--intervalos", help="Colas OHLC a bajar, en minutos: 1,60,1440")
+    h.add_argument("--intervalos", help="Colas OHLC a bajar (o, con derivar, velas a rehacer), en minutos: 1,60,1440")
     h.add_argument("--max-llamadas", type=int, dest="max_llamadas", help="Tope de llamadas a Trades en esta ejecución")
     h.add_argument("--intervalo", type=int, help="Minutos de las velas del CSV si el nombre no lo dice")
     h.add_argument("--desde", help="AAAA-MM-DD (UTC)")

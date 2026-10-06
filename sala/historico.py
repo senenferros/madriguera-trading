@@ -99,6 +99,26 @@ def fecha_utc(t):
     return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%d")
 
 
+def _t_mes(mes):
+    """First second (UTC) of the month "AAAA-MM"."""
+    a, m = int(mes[:4]), int(mes[5:7])
+    return int(datetime(a, m, 1, tzinfo=timezone.utc).timestamp())
+
+
+def _mes_siguiente(mes):
+    a, m = int(mes[:4]), int(mes[5:7])
+    return f"{a + (m == 12):04d}-{(m % 12) + 1:02d}"
+
+
+def _meses_entre(desde_t, hasta_t):
+    """The UTC months touched by [desde_t, hasta_t)."""
+    out, mes, fin = [], mes_de(desde_t), mes_de(max(desde_t, hasta_t - 1))
+    while mes <= fin:
+        out.append(mes)
+        mes = _mes_siguiente(mes)
+    return out
+
+
 def _t_de_fecha(texto):
     """'AAAA-MM-DD' -> epoch of that UTC midnight (ValueError if malformed)."""
     d = date.fromisoformat(str(texto).strip())
@@ -280,18 +300,24 @@ def remuestrear(velas, origen, destino, hasta_t=None):
     return [c for c in out if c[0] + paso <= limite]
 
 
-def _fuente_para(par, marco):
-    """The stored interval cargar() reads for `marco` (§4.8): widest coverage velas·d, ties to the finest."""
+def _fuente_para(par, marco, desde_t=None, hasta_t=None):
+    """The stored interval cargar() reads for `marco` (§4.8): widest coverage velas·d, ties to the finest. Given a
+    range, an interval whose month files cover every month of it beats one with a month missing: a hole the Trades
+    backfill filled at 1 min must not hide behind the wider 60-min series. Returns ((completo, cobertura), d, r)."""
     marco = int(marco)
     res = resumen().get(par) or {}
+    necesarios = set(_meses_entre(desde_t, hasta_t)) if desde_t is not None and hasta_t is not None and hasta_t > desde_t else set()
     mejor = None
     for d in INTERVALOS:
-        if marco % d != 0 or not meses(par, d):
+        if marco % d != 0:
+            continue
+        presentes = meses(par, d)
+        if not presentes:
             continue
         r = res.get(str(d)) or {}
-        cobertura = (r.get("velas") or 0) * d
-        if mejor is None or cobertura > mejor[0]:
-            mejor = (cobertura, d, r)
+        clave = (1 if necesarios and necesarios <= set(presentes) else 0, (r.get("velas") or 0) * d)
+        if mejor is None or clave > mejor[0]:
+            mejor = (clave, d, r)
     return mejor
 
 
@@ -307,7 +333,7 @@ def cargar(par, desde_t, hasta_t, marco=1):
     """Candles of `marco` minutes with desde_t <= t and t + marco*60 <= hasta_t, sorted, without duplicates.
     Resamples month by month, so only one source month plus the output live in memory."""
     marco = int(marco)
-    f = _fuente_para(par, marco)
+    f = _fuente_para(par, marco, desde_t, hasta_t)
     if not f or hasta_t <= desde_t:
         return []
     d = f[1]
@@ -622,7 +648,7 @@ def actualizar(par=None, intervalos=None, dias=None, avisar=print, cfg=None, max
     presupuesto = max_llamadas
     for par in pares:
         nombre = mercado.nombre_par(par)
-        r = {"ohlc": 0, "vigia": 0, "trades": {"velas": 0, "llamadas": 0, "tramos": 0, "terminado": True}, "error": None, "ocupado": False}
+        r = {"ohlc": 0, "vigia": 0, "trades": {"velas": 0, "llamadas": 0, "tramos": 0, "terminado": True}, "derivadas": {}, "error": None, "ocupado": False}
         salida[par] = r
         try:
             with ocupar(par):
@@ -635,6 +661,7 @@ def actualizar(par=None, intervalos=None, dias=None, avisar=print, cfg=None, max
                         velas = [v for v in velas if v[5] > 0]   # the OHLC API invents volume-0 minutes; the history has none
                     r["ohlc"] += guardar(par, n, velas, fuente="ohlc")
                 r["vigia"] = consolidar_vigia(par, avisar)
+                tocados = set()
                 if cfg["dias_trades"] > 0 or meses(par, 1):
                     tramos = _tramos(par, ahora, cfg)
                     r["trades"]["tramos"] = len(tramos)
@@ -649,6 +676,8 @@ def actualizar(par=None, intervalos=None, dias=None, avisar=print, cfg=None, max
                             presupuesto -= t["llamadas"]
                         r["trades"]["velas"] += t["velas"]
                         r["trades"]["llamadas"] += t["llamadas"]
+                        if t["velas"]:
+                            tocados.update(_meses_entre(a, min(b, t["hasta_t"]) + 60))
                         if not t["terminado"]:
                             r["trades"]["terminado"] = False
                             break
@@ -658,6 +687,8 @@ def actualizar(par=None, intervalos=None, dias=None, avisar=print, cfg=None, max
                                 if [a, b] not in e["huecos_verificados"]:
                                     e["huecos_verificados"] = (e["huecos_verificados"] + [[a, b]])[-500:]
                             _modificar_estado(cambio)
+                if tocados:
+                    r["derivadas"] = derivar(par, intervalos, sorted(tocados), avisar)
         except Ocupado as err:
             r["ocupado"] = True
             r["error"] = str(err)
@@ -669,8 +700,43 @@ def actualizar(par=None, intervalos=None, dias=None, avisar=print, cfg=None, max
             continue
         avisar(f"{nombre}: cola OHLC {r['ohlc']} velas ({', '.join(f'{n} min' for n in intervalos)}); vigía {r['vigia']} velas; "
                f"Trades {r['trades']['velas']} velas en {r['trades']['llamadas']} llamadas"
+               + ("; derivadas " + ", ".join(f"{d} min {n}" for d, n in r["derivadas"].items()) if r["derivadas"] else "")
                + ("" if r["trades"]["terminado"] else " (sin terminar: relanza para seguir)"))
     return salida
+
+
+# ---------- coarser intervals derived from the 1-minute candles ----------
+
+def derivar(par, intervalos=None, meses_sel=None, avisar=print):
+    """Rebuild the coarser configured intervals (60, 1440…) from the stored 1-minute candles, month by month, so a
+    hole the Trades backfill filled at 1 min does not survive in the 60-min series the backtest may read. Only
+    months with 1-min candles are touched; inside the data a missing minute is "no trades"; the bucket still open at
+    the last 1-min candle is not emitted. Returns {intervalo: velas guardadas}."""
+    par = _par_valido(par)
+    cfg = configuracion()
+    destinos = [int(d) for d in (intervalos or cfg["intervalos"]) if int(d) in INTERVALOS and int(d) > 1]
+    todos = meses(par, 1)
+    lista = [m for m in todos if not meses_sel or m in set(meses_sel)]
+    out = {d: 0 for d in destinos}
+    if not lista or not destinos:
+        return out
+    with ocupar(par):
+        ult = leer_mes(par, 1, todos[-1])
+        ultimo = ult[-1][0] + 60 if ult else None
+        for k, mes in enumerate(lista):
+            velas = leer_mes(par, 1, mes)
+            if not velas:
+                continue
+            fin_mes = _t_mes(_mes_siguiente(mes))
+            limite = min(fin_mes, ultimo) if ultimo is not None else fin_mes
+            for d in destinos:
+                derivadas = remuestrear(velas, 1, d, hasta_t=limite)
+                if derivadas:
+                    out[d] += guardar(par, d, derivadas, fuente="derivado")
+            latir(par)
+            if (k + 1) % 12 == 0 or k == len(lista) - 1:
+                avisar(f"Derivado {mercado.nombre_par(par)} hasta {mes}: " + ", ".join(f"{d} min {out[d]} velas" for d in destinos))
+    return out
 
 
 # ---------- CSV OHLCVT import ----------

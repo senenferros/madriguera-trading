@@ -342,6 +342,7 @@ def prueba_historico_fuentes():
     log = []
     res = historico.actualizar("XBTEUR", intervalos=[1, 60], dias=0, avisar=log.append, ahora=AHORA)
     ok(isinstance(res, dict) and "XBTEUR" in res and not res["XBTEUR"].get("error") and not res["XBTEUR"].get("ocupado"), "actualizar devuelve el resultado por par sin error")
+    ok(res["XBTEUR"].get("derivadas") == {}, "actualizar: sin relleno por Trades no deriva nada")
     cola = historico.cargar("XBTEUR", AHORA - 720 * 60, AHORA + 60, 1)
     ok(640 <= len(cola) <= 720 and not any(v[5] == 0 for v in cola), f"cola OHLC de 1 min sin velas de volumen 0 ({len(cola)} velas)")
     cola60 = historico.cargar("XBTEUR", AHORA - 720 * 3600, AHORA + 3600, 60)
@@ -621,6 +622,95 @@ def prueba_historico_fuentes():
     historico.comprobar(inf)
     sec = next((s for s in inf.secciones if s["titulo"] == "Histórico"), None)
     ok(sec is not None and len(sec["items"]) >= 2, "comprobar(inf) añade la sección Histórico con un ítem por par")
+
+
+# =====================================================================================================================
+# 9.2b Histórico: derivar y selector de series por rango
+# =====================================================================================================================
+
+def prueba_historico_derivar():
+    ok(historico._t_mes("2024-02") == T_FEB and historico._mes_siguiente("2024-12") == "2025-01" and historico._mes_siguiente("2024-02") == "2024-03", "_t_mes y _mes_siguiente")
+    ok(historico._meses_entre(T_FEB - 1, T_FEB + 1) == ["2024-01", "2024-02"] and historico._meses_entre(T_FEB, T_FEB + 60) == ["2024-02"], "_meses_entre: meses UTC tocados por [desde, hasta)")
+    ok(historico._meses_entre(T_FEB - 86400 * 40, T_FEB + 1) == ["2023-12", "2024-01", "2024-02"], "_meses_entre: tres meses")
+
+    # 1 min in February: hours 0-2 complete, hole 3:00-6:59, hour 7 complete, 8:00-8:29 open at the end of the data
+    limpiar_historico()
+    feb = velas_minuto(T_FEB, 180) + velas_minuto(T_FEB + 7 * 3600, 90, precio=200.0)
+    sembrar("SOLEUR", 1, feb)
+    log = []
+    out = historico.derivar("SOLEUR", intervalos=[60, 1440], avisar=log.append)
+    ok(out == {60: 4, 1440: 0}, f"derivar: 4 velas de 60 min y ninguna de 1440 ({out})")
+    h = historico.leer_mes("SOLEUR", 60, "2024-02")
+    ok([v[0] for v in h] == [T_FEB, T_FEB + 3600, T_FEB + 7200, T_FEB + 7 * 3600], "derivar: las horas cerradas, sin el hueco ni la hora abierta del final")
+    ok(h == historico.remuestrear(feb, 1, 60, hasta_t=T_FEB + 8 * 3600 + 30 * 60), "derivar: igual que remuestrear el 1 min hasta la última vela")
+    ok(h[2][5] == 60 and h[3][1] == 200.0, "derivar: volumen 60 por hora y el open de las 07:00")
+    ok(historico.meses("SOLEUR", 1440) == [] and not (nucleo.DATOS_DIR / "historico" / "SOLEUR" / "1440m").is_dir(), "derivar: sin día completo no escribe la carpeta 1440m")
+    r = historico.resumen()["SOLEUR"]
+    ok("derivado" in r["60"]["fuentes"] and r["60"]["velas"] == 4, f"resumen: fuente derivado ({r['60']['fuentes']})")
+    ok(log and "Derivado SOL/EUR hasta 2024-02" in log[-1] and not historico.bloqueo_vivo("SOLEUR"), "derivar avisa al acabar y suelta el bloqueo")
+
+    # later 1-min data closes hour 8; a second run merges, does not duplicate
+    lote_b = velas_minuto(T_FEB + 8 * 3600 + 30 * 60, 90, precio=300.0)
+    sembrar("SOLEUR", 1, lote_b)
+    out = historico.derivar("SOLEUR", intervalos=[60])
+    h = historico.leer_mes("SOLEUR", 60, "2024-02")
+    ok(out == {60: 6} and [v[0] for v in h] == [T_FEB, T_FEB + 3600, T_FEB + 7200, T_FEB + 7 * 3600, T_FEB + 8 * 3600, T_FEB + 9 * 3600], "derivar de nuevo: las horas 8 y 9 ya cerradas (la 9 acaba justo en la última vela), sin duplicados")
+    hora8 = [v for v in feb + lote_b if T_FEB + 8 * 3600 <= v[0] < T_FEB + 9 * 3600]
+    ok(h[4][5] == 60 and h[4] == historico.remuestrear(hora8, 1, 60)[0], "derivar: la hora 8 junta los dos lotes de 1 min (volumen 60)")
+
+    # a month before the last one is closed by its own end, not by the last 1-min candle: both January hours come out
+    sembrar("SOLEUR", 1, velas_minuto(T_FEB - 7200, 120))
+    out = historico.derivar("SOLEUR", intervalos=[60], meses_sel=["2024-01"])
+    ok(out == {60: 2} and [v[0] for v in historico.leer_mes("SOLEUR", 60, "2024-01")] == [T_FEB - 7200, T_FEB - 3600], "derivar con meses_sel: solo enero, dos horas")
+    ok(len(historico.leer_mes("SOLEUR", 60, "2024-02")) == 6, "derivar con meses_sel no toca febrero")
+    ok(historico.derivar("SOLEUR", intervalos=[60], meses_sel=["2019-01"]) == {60: 0} and historico.derivar("SOLEUR", intervalos=[1]) == {}, "derivar: mes sin 1 min -> 0; intervalo 1 no es destino")
+
+    # a whole UTC day of 1 min -> one daily candle; the 10 minutes of the next day stay open
+    sembrar("ADAEUR", 1, velas_minuto(T_FEB, 1440 + 10, precio=5.0))
+    out = historico.derivar("ADAEUR")      # config defaults: 60 and 1440
+    d = historico.leer_mes("ADAEUR", 1440, "2024-02")
+    ok(out == {60: 24, 1440: 1} and len(d) == 1 and d[0][0] == T_FEB and d[0][5] == 1440, f"derivar con los intervalos de config: 24 horas y 1 día ({out})")
+    ok(d[0] == historico.remuestrear(velas_minuto(T_FEB, 1440, precio=5.0), 1, 1440)[0], "derivar: la vela diaria es el remuestreo del día")
+
+    # the range-aware chooser: SOLEUR has 1 min in 2024-01/02 (hours) and 60 min derived from it; add 60 min only in
+    # March (native, 100 candles: by far the widest coverage) and 1 min only in April (3 hours)
+    T_MAR, T_ABR = historico._t_mes("2024-03"), historico._t_mes("2024-04")
+    sembrar("SOLEUR", 60, [[T_MAR + k * 3600, 1, 2, 0.5, 1, 1] for k in range(100)])
+    abr = velas_minuto(T_ABR, 180, precio=400.0)
+    sembrar("SOLEUR", 1, abr)
+    f = historico._fuente_para("SOLEUR", 60)
+    ok(f and f[1] == 60 and f[0] == (0, 108 * 60), f"_fuente_para sin rango: gana la cobertura (60 min, {f and f[0]})")
+    ok(historico._fuente_para("SOLEUR", 60, T_ABR, T_ABR + 3 * 3600)[1] == 1, "_fuente_para con rango en abril: el 1 min, porque al 60 min le falta el mes")
+    ok(historico._fuente_para("SOLEUR", 60, T_MAR, T_MAR + 86400)[1] == 60, "_fuente_para con rango en marzo: el 60 min (al 1 min le falta marzo)")
+    ok(historico._fuente_para("SOLEUR", 60, T_FEB - 3600, T_FEB + 3600)[1] == 60, "_fuente_para con rango ene-feb: los dos completos, gana la cobertura")
+    ok(historico._fuente_para("SOLEUR", 60, T_FEB, T_ABR + 3600)[1] == 60, "_fuente_para con rango feb-abr: ninguno completo, gana la cobertura")
+    ok(historico._fuente_para("SOLEUR", 240, T_ABR, T_ABR + 3 * 3600)[1] == 1 and historico._fuente_para("SOLEUR", 1, T_ABR, T_ABR + 60)[1] == 1, "_fuente_para a 240 min y a 1 min en abril: el 1 min")
+    ok(historico._fuente_para("SOLEUR", 60, T_ABR + 3600, T_ABR)[1] == 60, "_fuente_para con rango vacío: como sin rango")
+    c = historico.cargar("SOLEUR", T_ABR, T_ABR + 3 * 3600, 60)
+    ok(c == historico.remuestrear(abr, 1, 60) and len(c) == 3, "cargar a 60 min en abril lee el 1 min aunque el 60 min tenga más velas")
+    ok(historico.cargar("SOLEUR", T_MAR, T_MAR + 5 * 3600, 60) == [[T_MAR + k * 3600, 1, 2, 0.5, 1, 1] for k in range(5)], "cargar a 60 min en marzo lee el 60 min nativo")
+    if backtest is not None:
+        ok(backtest._intervalo_origen(historico, "SOLEUR", 60) == 60 and backtest._intervalo_origen(historico, "SOLEUR", 60, T_ABR, T_ABR + 3600) == 1, "backtest._intervalo_origen sigue al selector con rango")
+        ok(backtest._intervalo_origen(historico, "DOGEEUR", 60) is None, "backtest._intervalo_origen: par sin histórico -> None")
+
+    # actualizar: the Trades backfill fills the tail of a 1-min history and the 60-min series is rebuilt for those months
+    H0 = T_TR - 900                        # 2023-11-14 22:00 UTC, an hour boundary 15 minutes before the fake tape starts
+    ahora = H0 + 5400                      # 23:30: the tail [T_TR, 23:29) comes from the Trades endpoint
+    sembrar("ADAEUR", 1, velas_minuto(ahora - 86400, (T_TR - (ahora - 86400)) // 60, precio=0.4))   # dias=1 -> no head stretch
+    r = historico.actualizar("ADAEUR", intervalos=[1, 60], dias=1, avisar=lambda m: None, ahora=ahora)["ADAEUR"]
+    ok(not r["error"] and r["trades"]["terminado"] and r["trades"]["velas"] >= 70, f"actualizar: cola rellenada con Trades ({r['trades']})")
+    ok(r["derivadas"] == {60: 25}, f"actualizar: rehace las 25 horas de 60 min de los meses tocados ({r['derivadas']})")
+    h = historico.leer_mes("ADAEUR", 60, "2023-11")
+    v_h0 = next((v for v in h if v[0] == H0), None)
+    ok(len(h) == 25 and h[0][0] == H0 - 23 * 3600 and h[-1][0] == H0 + 3600, "actualizar: 60 min de noviembre desde la hora 23:00 del día 13 hasta las 23:00 del 14")
+    ok(v_h0 is not None and cerca(v_h0[5], 15 + 45 * 2.0, 1e-6), f"actualizar: la hora 22:00 junta 15 min sembrados y 45 min de operaciones (volumen {v_h0 and v_h0[5]})")
+    c60 = historico.cargar("ADAEUR", H0 - 3600, H0 + 7200, 60)
+    ok(c60 == [v for v in h if H0 - 3600 <= v[0] < H0 + 7200] and len(c60) == 3, "cargar a 60 min tras actualizar lee la serie derivada, ya sin hueco")
+    ok("derivado" in historico.resumen()["ADAEUR"]["60"]["fuentes"] and "ohlc" in historico.resumen()["ADAEUR"]["60"]["fuentes"], "resumen: 60 min con fuentes ohlc y derivado")
+
+    for par in ("SOLEUR", "ADAEUR"):
+        shutil.rmtree(nucleo.DATOS_DIR / "historico" / par, ignore_errors=True)
+    historico.reindexar(avisar=lambda m: None)
 
 
 # =====================================================================================================================
@@ -1316,6 +1406,10 @@ def prueba_cli():
     ok(codigo == 1, "CLI: backtest sin estrategia -> 1")
     codigo, texto = main_con(["historico", "validar"])
     ok(codigo == 0, "CLI: historico validar -> 0 sin red")
+    codigo, texto = main_con(["historico", "derivar", "--par", "xbteur"])
+    ok(codigo == 0 and "BTC/EUR: 60 min" in texto and "1440 min" in texto and "velas derivadas" in texto, f"CLI: historico derivar -> 0 y dice cuántas velas ha derivado ({codigo})")
+    codigo, texto = main_con(["historico", "derivar", "--par", "xbteur", "--intervalos", "60"])
+    ok(codigo == 0 and "60 min" in texto and "1440 min" not in texto, "CLI: historico derivar --intervalos 60 solo rehace las horas")
     global CORRER_N
     codigo, texto = main_con(["backtest", "rotura_dia", "--par", "XBTEUR", "--semillas", "5"])
     CORRER_N += 1
@@ -1352,6 +1446,7 @@ def prueba_cli():
 
 seccion("Histórico: disco y lector", prueba_historico_disco, ("sala.historico", historico))
 seccion("Histórico: fuentes", prueba_historico_fuentes, ("sala.historico", historico))
+seccion("Histórico: derivar y selector", prueba_historico_derivar, ("sala.historico", historico))
 seccion("Backtest: motor", prueba_motor, ("sala.estrategias", estrategias), ("sala.backtest", backtest))
 seccion("Backtest: métricas y walk-forward", prueba_metricas_wf, ("sala.estrategias", estrategias), ("sala.backtest", backtest))
 seccion("Backtest: estrategias", prueba_estrategias, ("sala.estrategias", estrategias), ("sala.backtest", backtest))

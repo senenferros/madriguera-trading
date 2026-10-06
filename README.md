@@ -112,6 +112,7 @@ Desde una terminal, en la carpeta del proyecto:
       [--par XBTEUR] [--intervalo 1] [--desde AAAA-MM-DD] [--hasta AAAA-MM-DD]
 .venv\Scripts\python.exe app.py historico validar [--par XBTEUR] [--red]
 .venv\Scripts\python.exe app.py historico reindexar               reconstruye el manifiesto estado.json
+.venv\Scripts\python.exe app.py historico derivar                 rehace las velas de 60 y 1440 min a partir de las de 1 min (tras rellenar un hueco con la API de operaciones)
 .venv\Scripts\python.exe app.py backtest ESTRATEGIA               [--par XBTEUR] [--desde AAAA-MM-DD] [--hasta AAAA-MM-DD] [--semillas 200]
 .venv\Scripts\python.exe app.py backtest --lista                  las seis estrategias
 ```

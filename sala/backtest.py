@@ -876,17 +876,11 @@ def _tz():
     return "/".join(dict.fromkeys(nombres)) if nombres else "?"
 
 
-def _intervalo_origen(historico, par, marco):
-    """Which stored interval cargar() picks for `marco` (§4.8), or None if it cannot be told."""
+def _intervalo_origen(historico, par, marco, desde_t=None, hasta_t=None):
+    """Which stored interval cargar() picks for `marco` over the range (§4.8), or None if it cannot be told."""
     try:
-        res = historico.resumen().get(par) or {}
-        candidatos = []
-        for d in historico.INTERVALOS:
-            if marco % d == 0 and str(d) in res and historico.meses(par, d):
-                candidatos.append((res[str(d)].get("velas", 0) * d, -d, d))
-        if not candidatos:
-            return None
-        return max(candidatos)[2]
+        f = historico._fuente_para(par, marco, desde_t, hasta_t)
+        return f[1] if f else None
     except Exception:   # the historico module may be older or the manifest odd: this is only informative
         return None
 
@@ -927,7 +921,7 @@ def correr(estrategia, par, desde=None, hasta=None, avisar=print, cfg=None, ahor
     for aviso_recorte in recortes:
         avisar(aviso_recorte)
     desde_txt, hasta_txt = _fecha_utc(desde_t), _fecha_utc(hasta_t - 1)
-    origen = _intervalo_origen(historico, par, marco)
+    origen = _intervalo_origen(historico, par, marco, desde_t - (est.calentamiento + 10) * marco * 60, hasta_t)
     anos = (hasta_t - desde_t) / (365 * 86400)
     avisar(f"Cargando {_coma(anos, 1)} años de velas"
            + (f" de {origen} min y remuestreando a {marco} min…" if origen and origen != marco else f" de {marco} min…"))
