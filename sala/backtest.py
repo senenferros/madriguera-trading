@@ -160,9 +160,11 @@ def _estado_inicial(estado, capital):
     return {"pico": float(capital), "apagado": False, "parado_dia": None, "inicio_dia": float(capital), "dia": None}
 
 
-def simular(velas, estrategia, params, cfg, desde_t=None, hasta_t=None, capital=None, ventana=0, estado=None):
+def simular(velas, estrategia, params, cfg, desde_t=None, hasta_t=None, capital=None, ventana=0, estado=None, reanudar_en=None):
     """Recorre las barras (calentamiento incluido en `velas`): señal al cierre, ejecución al open siguiente, stop y
-    objetivo dentro de la barra, parada del día, apagado acumulado (`estado` viene y vuelve) y cierre forzoso al final."""
+    objetivo dentro de la barra, parada del día, apagado acumulado (`estado` viene y vuelve) y cierre forzoso al final.
+    `reanudar_en`: timestamps (window starts) at which a tripped kill switch is re-armed with the peak reset to the
+    equity of that bar, the way a human restarts after a review; the trip stays counted in `apagones`."""
     com = cfg["comision_pct"] / 100
     desl = cfg["deslizamiento_pct"] / 100
     desl_stop = cfg["deslizamiento_stop_pct"] / 100
@@ -183,6 +185,9 @@ def simular(velas, estrategia, params, cfg, desde_t=None, hasta_t=None, capital=
     rechazos = {}
     paradas_dia = 0
     apagones = 0
+    reanudaciones = 0
+    limites = sorted(float(x) for x in (reanudar_en or []))
+    k_lim = 0
     barras = 0
     barras_en_posicion = 0
     comisiones_total = 0.0
@@ -256,6 +261,14 @@ def simular(velas, estrategia, params, cfg, desde_t=None, hasta_t=None, capital=
             barras += 1
             if pos is not None:
                 barras_en_posicion += 1
+        # a window start re-arms a tripped switch (walk-forward windows do this through `estado`; the random seeds,
+        # which run the stitched OOS span in one go, through `reanudar_en`) so both sides play by the same rule
+        while k_lim < len(limites) and limites[k_lim] <= t:
+            if apagado:
+                apagado = False
+                pico = equity
+                reanudaciones += 1
+            k_lim += 1
         if equity > pico:
             pico = equity
         if dia_i != dia:
@@ -299,7 +312,7 @@ def simular(velas, estrategia, params, cfg, desde_t=None, hasta_t=None, capital=
         if curva and curva[-1][0] == vl[0]:
             curva[-1][1] = efectivo
     return {"operaciones": operaciones, "curva": curva, "capital_final": efectivo, "rechazadas": rechazadas,
-            "rechazos": rechazos, "paradas_dia": paradas_dia, "apagones": apagones, "barras": barras,
+            "rechazos": rechazos, "paradas_dia": paradas_dia, "apagones": apagones, "reanudaciones": reanudaciones, "barras": barras,
             "barras_en_posicion": barras_en_posicion, "comisiones": comisiones_total, "deslizamiento": deslizamiento_total,
             "estado": {"pico": pico, "apagado": apagado, "parado_dia": parado_dia, "inicio_dia": inicio_dia, "dia": dia}}
 
@@ -434,6 +447,7 @@ def _completar_metricas(m, res):
     m["exposicion_pct"] = round(res["barras_en_posicion"] / res["barras"] * 100, 2) if res.get("barras") else 0.0
     m["paradas_dia"] = res.get("paradas_dia", 0)
     m["apagones"] = res.get("apagones", 0)
+    m["reanudaciones"] = res.get("reanudaciones", 0)
     m["rechazadas"] = res.get("rechazadas", 0)
     m["comisiones_total"] = round(res.get("comisiones", m["comisiones_total"]), 2)
     m["deslizamiento_total"] = round(res.get("deslizamiento", m["deslizamiento_total"]), 2)
@@ -516,7 +530,8 @@ def seleccionar(velas, estrategia, cfg, ventana, avisar=print, total=None):
 
 def walk_forward(velas, estrategia, cfg, desde_t, hasta_t, avisar=print):
     """Ventana a ventana: parámetros elegidos en IS, juzgados en la OOS siguiente con el capital y el estado (pico,
-    apagado, parada del día) arrastrados: una sola curva cosida y la regla 4 acumulada de verdad."""
+    apagado, parada del día) arrastrados: una sola curva cosida y la regla 4 acumulada de verdad. Un apagado deja la
+    ventana sin operar; la siguiente reanuda con el pico en el capital de ese momento y el apagado queda contado."""
     lista = ventanas(desde_t, hasta_t, cfg["ventana_is_dias"], cfg["ventana_oos_dias"], cfg["oos_min_dias"])
     capital = float(cfg["capital_inicial"])
     estado = None
@@ -524,13 +539,17 @@ def walk_forward(velas, estrategia, cfg, desde_t, hasta_t, avisar=print):
     operaciones = []
     curva = []
     is_ops = []
-    tot = {"apagones": 0, "paradas_dia": 0, "rechazadas": 0, "rechazos": {}, "comisiones": 0.0, "deslizamiento": 0.0,
+    tot = {"apagones": 0, "reanudaciones": 0, "paradas_dia": 0, "rechazadas": 0, "rechazos": {}, "comisiones": 0.0, "deslizamiento": 0.0,
            "barras": 0, "barras_en_posicion": 0}
     for w in lista:
         a, b = w["is"]
         b, c = w["oos"]
         params, tabla, por_defecto, elegida, ops_is = _seleccionar(velas, estrategia, cfg, w, avisar, len(lista))
         is_ops.extend(ops_is)
+        reanudado = bool(estado and estado.get("apagado"))
+        if reanudado:
+            estado = dict(estado, apagado=False, pico=capital)
+            tot["reanudaciones"] += 1
         r = simular(recorte(velas, b, c, estrategia.calentamiento), estrategia, params, cfg, desde_t=b, hasta_t=c,
                     capital=capital, ventana=w["k"], estado=estado)
         pnl = sum(op["pnl"] for op in r["operaciones"])
@@ -543,7 +562,7 @@ def walk_forward(velas, estrategia, cfg, desde_t, hasta_t, avisar=print):
             "oos_m": {"n": len(Rs), "expectativa_R": round(statistics.mean(Rs), 3) if Rs else 0.0,
                       "profit_factor": _r(_profit_factor([op["pnl"] for op in r["operaciones"]]), 3), "pnl": round(pnl, 2),
                       "rentabilidad_pct": round((r["capital_final"] / capital - 1) * 100, 2) if capital else 0.0,
-                      "apagones": r["apagones"], "paradas_dia": r["paradas_dia"], "capital_inicio": round(capital, 2),
+                      "apagones": r["apagones"], "reanudado": reanudado, "paradas_dia": r["paradas_dia"], "capital_inicio": round(capital, 2),
                       "capital_final": round(r["capital_final"], 2)},
         })
         operaciones.extend(r["operaciones"])
@@ -633,8 +652,9 @@ def _marco_de(velas):
     return max(1, int(min(velas[k + 1][0] - velas[k][0] for k in range(min(len(velas) - 1, 50))) // 60))
 
 
-def azar(velas, cfg, n_ops, stop_pct, barras, desde_t, hasta_t, semillas, expectativa_real, avisar=print):
-    """`semillas` simulaciones de entradas aleatorias sobre el recorte OOS cosido; p_azar = (1 + #{E_R_s >= real})/(S+1)."""
+def azar(velas, cfg, n_ops, stop_pct, barras, desde_t, hasta_t, semillas, expectativa_real, avisar=print, reanudar_en=None):
+    """`semillas` simulaciones de entradas aleatorias sobre el recorte OOS cosido; p_azar = (1 + #{E_R_s >= real})/(S+1).
+    `reanudar_en`: the OOS window starts, so a switched-off seed re-arms where the strategy would."""
     S = int(semillas)
     rec = recorte(velas, desde_t, hasta_t, 14)
     marco = _marco_de(rec)
@@ -643,7 +663,7 @@ def azar(velas, cfg, n_ops, stop_pct, barras, desde_t, hasta_t, semillas, expect
         avisar(f"Contraste de azar: {S} semillas de {n_ops} entradas aleatorias (stop {_coma(stop_pct * 100, 2)} %, {barras} barras)…")
         for s in range(S):
             r = simular(rec, EstrategiaAzar(marco, n_ops, stop_pct, barras, s), {}, cfg, desde_t=desde_t, hasta_t=hasta_t,
-                        capital=cfg["capital_inicial"])
+                        capital=cfg["capital_inicial"], reanudar_en=reanudar_en)
             Rs = [op["R"] for op in r["operaciones"]]
             por_semilla.append({"semilla": s, "n": len(Rs), "expectativa_R": statistics.mean(Rs) if Rs else 0.0,
                                 "rentabilidad_pct": (r["capital_final"] / cfg["capital_inicial"] - 1) * 100,
@@ -683,6 +703,7 @@ def puertas(m, res, cfg):
     positivas = sum(1 for w in vent if (w.get("oos_m") or {}).get("pnl", 0) > 0)
     ratio = positivas / len(vent) if vent else 0.0
     apagones = m.get("apagones", res.get("apagones", 0))
+    reanudaciones = m.get("reanudaciones", res.get("reanudaciones", 0))
     e_r, e_pct = m.get("expectativa_R", 0.0), m.get("expectativa_pct", 0.0)
     if pf is None and n > 0:
         texto_pf = f"Profit factor: sin pérdidas en {n} operaciones · revisar, huele a mirar al futuro"
@@ -707,7 +728,8 @@ def puertas(m, res, cfg):
         "consistencia": {"ok": bool(vent and ratio >= u["consistencia_min"]), "valor": round(ratio, 3), "umbral": u["consistencia_min"],
                          "texto": f"Ventanas con beneficio {positivas} de {len(vent)} · ≥ {_coma(u['consistencia_min'] * 100, 0)} %"},
         "apagado": {"ok": bool(apagones == 0), "valor": apagones, "umbral": 0,
-                    "texto": f"Apagados por −{_coma(cfg['apagado_pct'], 0)} %: {apagones} · tiene que ser 0"},
+                    "texto": f"Apagados por −{_coma(cfg['apagado_pct'], 0)} %: {apagones} · tiene que ser 0"
+                             + (f" (reanudado en la ventana siguiente {reanudaciones} {'vez' if reanudaciones == 1 else 'veces'})" if reanudaciones else "")},
     }
 
 
@@ -937,7 +959,8 @@ def correr(estrategia, par, desde=None, hasta=None, avisar=print, cfg=None, ahor
         stop_pct = statistics.median([(op["entrada"] - op["stop"]) / op["entrada"] for op in ops]) if ops else 0.01
         barras_med = int(statistics.median([op["barras"] for op in ops])) if ops else 1
         S = int(semillas if semillas is not None else cfg["semillas_azar"])
-        az = azar(velas, cfg, n_ops, stop_pct, max(1, barras_med), b1, cK, S, m["expectativa_R"], avisar)
+        az = azar(velas, cfg, n_ops, stop_pct, max(1, barras_med), b1, cK, S, m["expectativa_R"], avisar,
+                  reanudar_en=[w["oos"][0] for w in wf["ventanas"][1:]])
         az = {k: v for k, v in az.items() if k != "por_semilla"}
         az.update({"p_azar": _r(az["p_azar"], 4), "stop_pct": round(stop_pct * 100, 2), "barras": barras_med, "n_ops": n_ops})
         referencias = {"comprar_y_mantener": bh["metricas"], "comprar_y_mantener_30": {
@@ -946,7 +969,7 @@ def correr(estrategia, par, desde=None, hasta=None, avisar=print, cfg=None, ahor
         curva, curva_bh, curva_bh_30 = wf["curva"], bh["curva"], bh["al_30"]["curva"]
         oos_desde, oos_hasta = _fecha_utc(b1), _fecha_utc(cK - 1)
     else:
-        wf = {"ventanas": [], "operaciones": [], "curva": [], "capital_final": capital, "apagones": 0, "paradas_dia": 0,
+        wf = {"ventanas": [], "operaciones": [], "curva": [], "capital_final": capital, "apagones": 0, "reanudaciones": 0, "paradas_dia": 0,
               "rechazadas": 0, "rechazos": {}, "comisiones": 0.0, "deslizamiento": 0.0, "barras": 0, "barras_en_posicion": 0,
               "is_total": {"n": 0, "expectativa_R": 0.0, "profit_factor": None}}
         m = _completar_metricas(metricas([], [], capital, cfg), wf)

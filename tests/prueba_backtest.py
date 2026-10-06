@@ -714,6 +714,15 @@ def prueba_motor():
     ok(cerca(r["capital_final"], 10000 * 0.99 ** 13, 0.01) and r["estado"]["apagado"] is True, "regla 4: capital final 8.775 y estado apagado")
     r2 = backtest.simular(velas, fija(ordenes), {}, cfg4, estado=r["estado"])
     ok(r2["operaciones"] == [] and r2["estado"]["apagado"] is True, "regla 4: con el estado apagado arrastrado no entra ninguna orden")
+    # a window start listed in `reanudar_en` re-arms the switch: the 14th order goes through, the trip stays counted
+    r4 = backtest.simular(velas, fija(ordenes), {}, cfg4, reanudar_en=[velas[24 * 13][0]])
+    ok(len(r4["operaciones"]) == 14 and r4["apagones"] == 1 and r4["reanudaciones"] == 1 and r4["estado"]["apagado"] is False,
+       f"regla 4: reanudar_en en el día 14 rearma el apagado (14 operaciones, 1 apagado, 1 reanudación) ({len(r4['operaciones'])}, {r4['apagones']}, {r4['reanudaciones']})")
+    ok(r4["operaciones"][-1]["entrada_i"] == 24 * 13 + 1 and cerca(r4["operaciones"][-1]["capital_antes"], 10000 * 0.99 ** 13, 0.01),
+       "regla 4: la operación tras reanudar arriesga el 1 % del capital que quedó, con el pico puesto ahí")
+    r5 = backtest.simular(velas, fija(ordenes), {}, cfg4, reanudar_en=[velas[5][0]])
+    ok(len(r5["operaciones"]) == 13 and r5["reanudaciones"] == 0 and r5["estado"]["apagado"] is True,
+       "regla 4: un límite anterior al apagado no rearma nada")
     # rule 3 carried across a window boundary that falls inside a day with the daily stop already tripped
     dia_t0 = estrategias.dia_de(T0, "utc")
     r3 = backtest.simular([barra(k, 100, 101, 94, 100) for k in range(30)], fija({0: {"accion": "comprar", "stop": 95}, 24: {"accion": "comprar", "stop": 95}}), {}, CFG,
@@ -863,7 +872,10 @@ def prueba_metricas_wf():
        and backtest.configuracion({"backtest": {"semillas_azar_panel": 0}})["semillas_azar_panel"] == 50, "configuracion: semillas < 1 vuelven al defecto")
     ok(wf["is_total"]["n"] > 0 and wf["apagones"] == 0, "walk_forward: is_total y sin apagados")
     wf2 = backtest.walk_forward(rot, est, cfg_bt(apagado_pct=0.01), T0, T0 + 420 * 86400, avisar=lambda m: None)
-    ok(wf2["ventanas"][0]["oos_m"]["apagones"] == 1 and wf2["apagones"] == 1 and sum(v["oos_m"]["n"] for v in wf2["ventanas"][1:]) == 0, "walk_forward: el apagado se arrastra entre ventanas")
+    ok(wf2["ventanas"][0]["oos_m"]["apagones"] == 1 and wf2["apagones"] >= 1 and wf2["ventanas"][1]["oos_m"]["reanudado"] is True
+       and wf2["ventanas"][0]["oos_m"]["reanudado"] is False and wf2["reanudaciones"] >= 1 and sum(v["oos_m"]["n"] for v in wf2["ventanas"][1:]) > 0,
+       f"walk_forward: el apagado deja la ventana sin operar y la siguiente reanuda contándolo ({wf2['apagones']} apagados, {wf2['reanudaciones']} reanudaciones, {sum(v['oos_m']['n'] for v in wf2['ventanas'][1:])} operaciones después)")
+    ok(wf2["ventanas"][1]["oos_m"]["capital_inicio"] == wf2["ventanas"][0]["oos_m"]["capital_final"], "walk_forward: la ventana reanudada arranca con el capital que quedó")
 
     # no look-ahead, every strategy of the registry
     plana = serie_sintetica(60, 15, 11, "plana")
