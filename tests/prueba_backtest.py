@@ -466,7 +466,7 @@ def prueba_historico_fuentes():
     r = historico.importar_carpeta(TMP, ["XBTEUR"], avisar=lambda m: None)
     ok(len(r) == 1 and r[0]["par"] == "XBTEUR" and r[0]["intervalo"] == 5, "importar_carpeta encuentra XBTEUR_5.csv")
     r = historico.importar_csv(ruta_csv, par="xbteur", avisar=lambda m: None)
-    ok(r["par"] == "XBTEUR" and "xbteur" not in historico.resumen() and not (nucleo.DATOS_DIR / "historico" / "xbteur").exists()
+    ok(r["par"] == "XBTEUR" and "xbteur" not in historico.resumen() and "xbteur" not in [p.name for p in (nucleo.DATOS_DIR / "historico").iterdir()]
        and historico.rango_disponible("XBTEUR", 5) is not None, "importar_csv con --par xbteur: mismo par XBTEUR en disco y en el manifiesto")
     for malo in ("xbt", "XBT/EUR", ""):
         try:
