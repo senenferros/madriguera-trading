@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block titulo %}Portada · {{ nombre_sala }}{% endblock %}
+{% block cabeza %}
+<style>
+  .banner { border-radius: 18px; padding: 22px 24px; margin-bottom: 22px; border: 1px solid var(--borde); background: linear-gradient(180deg, var(--panel2), var(--panel)); box-shadow: var(--sombra); }
+  .banner h1 { font-size: 30px; margin-bottom: 8px; }
+  .banner p { font-size: 18px; margin: 0; color: var(--texto); }
+  .banner.no { border-left: 8px solid var(--suave); }
+  .banner.si { border-left: 8px solid var(--aviso); }
+  .barra { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 0 0 18px; }
+  .barra button { font-size: 17px; padding: 12px 22px; }
+  .barra .estado { color: var(--suave); }
+  .rejilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
+  .tarjeta { background: linear-gradient(180deg, var(--panel2), var(--panel)); border: 1px solid var(--borde); border-radius: 18px; padding: 20px; box-shadow: var(--sombra); display: flex; flex-direction: column; gap: 10px; }
+  .tarjeta .cabeza { display: flex; align-items: center; gap: 16px; }
+  .tarjeta h2 { font-size: 22px; margin: 0; }
+  .luz { width: 56px; height: 56px; border-radius: 50%; flex: none; border: 3px solid rgba(255,255,255,.08); }
+  .luz.verde { background: #3ecf7f; box-shadow: 0 0 22px rgba(62,207,127,.55); }
+  .luz.amarillo { background: #f2c46d; box-shadow: 0 0 22px rgba(242,196,109,.55); }
+  .luz.rojo { background: #ff5a6a; box-shadow: 0 0 22px rgba(255,90,106,.55); }
+  .luz.gris { background: #5b6472; }
+  .titular { font-size: 19px; font-weight: 600; line-height: 1.35; margin: 0; }
+  .datos { margin: 0; padding: 0; list-style: none; color: var(--suave); font-size: 16px; }
+  .datos li { padding: 3px 0; }
+  .nota { font-size: 14px; color: var(--aviso); margin: 0; }
+  details { font-size: 15px; color: var(--suave); }
+  details summary { cursor: pointer; color: var(--acento); font-weight: 600; }
+  .leyenda { margin-top: 26px; }
+  .leyenda li { display: flex; gap: 12px; align-items: flex-start; margin: 10px 0; font-size: 16px; list-style: none; }
+  .leyenda ul { padding: 0; margin: 0; }
+  .leyenda .luz { width: 22px; height: 22px; border-width: 2px; margin-top: 2px; }
+  @media (max-width: 700px) {
+    .banner h1 { font-size: 23px; } .banner p { font-size: 16px; }
+    .rejilla { grid-template-columns: 1fr; }
+    .luz { width: 46px; height: 46px; }
+  }
+</style>
+{% endblock %}
+{% block contenido %}
+<section class="banner {{ 'si' if banner.hay else 'no' }}">
+  <h1>{{ banner.titulo }}</h1>
+  <p>{{ banner.texto }}</p>
+</section>
+
+<div class="barra">
+  <form method="post" action="{{ url_for('encargar_bolsa') }}" id="form-bolsa">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <button type="submit" id="boton-bolsa" {{ 'disabled' if trabajo and trabajo.estado == 'corriendo' }}>Actualizar precios</button>
+  </form>
+  <span class="estado" id="estado-bolsa">{% if trabajo and trabajo.estado == 'corriendo' %}Actualizando…{% endif %}</span>
+  <span class="sim">Solo mirar · simulación · sin dinero real</span>
+</div>
+
+<p class="sub">Un semáforo por mercado. El color describe cómo está el mercado; no es una orden de comprar ni de vender.</p>
+
+<div class="rejilla">
+{% for t in tarjetas %}
+  <article class="tarjeta" data-clave="{{ t.clave }}">
+    <div class="cabeza"><span class="luz {{ t.color }}" role="img" aria-label="Semáforo {{ t.color }}"></span><h2>{{ t.nombre }}</h2></div>
+    <p class="titular">{{ t.titular }}</p>
+    {% if t.datos %}<ul class="datos">{% for d in t.datos %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
+    {% if t.nota %}<p class="nota">{{ t.nota }}</p>{% endif %}
+    <details><summary>¿Qué significa?</summary>{{ t.explicacion }}</details>
+  </article>
+{% endfor %}
+</div>
+
+<section class="caja leyenda">
+  <h2>Qué quiere decir cada color</h2>
+  <ul>
+  {% for color, texto in umbrales %}
+    <li><span class="luz {{ color }}"></span><span>{{ texto }}</span></li>
+  {% endfor %}
+  </ul>
+  <p class="aviso-legal">Los colores solo resumen lo que ha hecho el precio; nadie sabe lo que hará mañana. Esto no es un consejo de inversión.
+  Precios de bolsa: Stooq (diarios, con retraso). Cripto: Kraken. ¿Quieres más detalle? <a href="{{ url_for('sala') }}">Modo experto</a>.</p>
+</section>
+
+<script>
+(function () {
+  const form = document.getElementById('form-bolsa'), boton = document.getElementById('boton-bolsa'), estado = document.getElementById('estado-bolsa');
+  function vigilar() {
+    fetch('{{ url_for("facil_estado") }}').then(r => r.json()).then(d => {
+      const t = d.trabajo;
+      if (t && t.estado === 'corriendo') { setTimeout(vigilar, 2000); return; }
+      location.reload();
+    }).catch(() => setTimeout(vigilar, 4000));
+  }
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    boton.disabled = true; estado.textContent = 'Actualizando…';
+    const datos = new FormData(form); datos.append('ajax', '1');
+    fetch(form.action, {method: 'POST', body: datos}).then(() => setTimeout(vigilar, 1500))
+      .catch(() => { boton.disabled = false; estado.textContent = 'No se ha podido pedir la actualización.'; });
+  });
+  {% if trabajo and trabajo.estado == 'corriendo' %}setTimeout(vigilar, 2000);{% endif %}
+})();
+</script>
+{% endblock %}

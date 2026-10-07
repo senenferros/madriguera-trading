@@ -19,6 +19,8 @@ Usage:
                                walk-forward backtest, judged out of sample; exit code 0 PASA, 2 NO PASA, 3 INSUFICIENTE
     python app.py backtest --lista
                                the strategies available
+    python app.py bolsa [--sin-red]
+                               refresh the easy page's prices (Stooq + Kraken daily) and print the traffic lights
 """
 import argparse
 import sys
@@ -266,6 +268,26 @@ def _imprimir_backtest(res, backtest):
     print(res.get("aviso") or backtest.AVISO_HONESTO)
 
 
+def cmd_bolsa(args):
+    from sala import bolsa
+    if not args.sin_red:
+        bolsa.actualizar(avisar=lambda m: print("  " + bolsa.ascii_(m)))
+        try:
+            from sala import historico
+            historico.actualizar(intervalos=[1440], dias=0, max_llamadas=0, avisar=lambda m: None)
+        except Exception as err:
+            print(f"  Cripto sin datos nuevos ({bolsa.ascii_(str(err))})")
+    print()
+    b = bolsa.banner()
+    print(bolsa.ascii_(b["titulo"] + " " + b["texto"]))
+    print()
+    for t in bolsa.tarjetas():
+        print("\n".join(bolsa.texto_cli(t)))
+    print()
+    print("Los colores describen el mercado, no son ordenes de compra o venta. Simulacion, sin dinero real.")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(prog="app.py", description="La Madriguera Trading")
     sub = parser.add_subparsers(dest="cmd")
@@ -291,11 +313,14 @@ def main():
     b.add_argument("--hasta", help="AAAA-MM-DD")
     b.add_argument("--semillas", type=int, help="Entradas aleatorias de contraste (config: semillas_azar, 200)")
     b.add_argument("--lista", action="store_true", help="Lista las estrategias")
+    bo = sub.add_parser("bolsa", help="Actualiza los precios de la portada y muestra los semáforos")
+    bo.add_argument("--sin-red", action="store_true", dest="sin_red", help="Solo muestra lo guardado, sin descargar")
     args = parser.parse_args()
     if not args.cmd:
         args.cmd, args.sin_navegador = "panel", False
     return {"comprobar": cmd_comprobar, "vigilar": cmd_vigilar, "panel": cmd_panel,
-            "historico": cmd_historico, "backtest": cmd_backtest}[args.cmd](args)
+            "historico": cmd_historico, "backtest": cmd_backtest,
+            "bolsa": cmd_bolsa}[args.cmd](args)
 
 
 if __name__ == "__main__":

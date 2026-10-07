@@ -195,11 +195,12 @@ app.config["TESTING"] = True
 c = app.test_client()
 BASE = "http://127.0.0.1:5100"
 csrf = app.config["CSRF_TOKEN"]
-r = c.get("/", base_url=BASE)
-ok(r.status_code == 200 and "Simulación · datos públicos · sin dinero real" in r.get_data(as_text=True), "GET / con aviso legal")
+r = c.get("/sala", base_url=BASE)
+ok(r.status_code == 200 and "Simulación · datos públicos · sin dinero real" in r.get_data(as_text=True), "GET /sala con aviso legal")
 html = r.get_data(as_text=True)
-ok("BTC/EUR" in html and "Reglas" in html or "reglas" in html, "GET / muestra pares y reglas")
+ok("BTC/EUR" in html and "Reglas" in html or "reglas" in html, "GET /sala muestra pares y reglas")
 ok("YouTube" not in html and "Shorts" not in html, "sin rastro de YouTube")
+ok(c.get("/", base_url=BASE).status_code == 200, "GET / (portada fácil) -> 200")
 r = c.get("/oficina", base_url=BASE)
 ok(r.status_code == 200 and "<canvas" in r.get_data(as_text=True) and all(m["nombre"] in r.get_data(as_text=True) for m in eq), "GET /oficina con canvas y equipo")
 r = c.get("/estado", base_url=BASE)

@@ -92,6 +92,7 @@ def cargar_config():
 
 COMENTARIOS_CONFIG = {   # the section comments config.yaml ships with; yaml.safe_dump would drop them on every panel toggle
     "historico": "# Histórico de Kraken: python app.py historico",
+    "mercados_extra": "# Portada fácil: mercados tradicionales de Stooq (solo mirar). clave, nombre, simbolo, moneda, tipo",
     "backtest": "# Backtest: comisión taker de Kraken Pro 0,40 % (maker 0,25); cámbiala si operas con limitadas",
 }
 

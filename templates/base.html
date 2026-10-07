@@ -67,9 +67,10 @@
 </head>
 <body>
 <header><div class="dentro">
-  <a class="marca" href="{{ url_for('sala') }}"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0f141c" stroke="#262e3a"/><polyline points="5,22 11,15 16,19 22,9 27,13" fill="none" stroke="#4cc38a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg><span><b>LA MADRIGUERA</b><small>TRADING</small></span></a>
+  <a class="marca" href="{{ url_for('facil') }}"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0f141c" stroke="#262e3a"/><polyline points="5,22 11,15 16,19 22,9 27,13" fill="none" stroke="#4cc38a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg><span><b>LA MADRIGUERA</b><small>TRADING</small></span></a>
   <nav>
-    <a href="{{ url_for('sala') }}" class="{{ 'activo' if request.endpoint == 'sala' }}">Sala</a>
+    <a href="{{ url_for('facil') }}" class="{{ 'activo' if request.endpoint == 'facil' }}">Portada</a>
+    <a href="{{ url_for('sala') }}" class="{{ 'activo' if request.endpoint == 'sala' }}">Modo experto</a>
     <a href="{{ url_for('oficina') }}" class="{{ 'activo' if request.endpoint == 'oficina' }}">Oficina</a>
     <a href="{{ url_for('backtest') }}" class="{{ 'activo' if request.endpoint == 'backtest' }}">Backtest</a>
     <a href="{{ url_for('comprobar') }}" class="{{ 'activo' if request.endpoint == 'comprobar' }}">Comprobar</a>

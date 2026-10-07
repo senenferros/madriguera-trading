@@ -44,7 +44,7 @@ def crear_panel(vigia=True, bot=None):
     app.config["CSRF_TOKEN"] = csrf_token
 
     bot = bot if bot is not None else telegram.Bot()
-    trabajos = {}   # "vigia" -> {estado, log}, "calendario" -> {estado, log}, "backtest" -> {estado, log, id}, "historico" -> {estado, log}
+    trabajos = {}   # "vigia" -> {estado, log}, "calendario" -> {estado, log}, "backtest" -> {estado, log, id}, "historico" -> {estado, log}, "bolsa" -> {estado, log}
     lanzar_lock = threading.Lock()   # the server is threaded: check-and-assign of a job must be one step
 
     def _reservar(nombre, trabajo):
@@ -198,7 +198,52 @@ def crear_panel(vigia=True, bot=None):
 
     # ---------- pages ----------
 
+    def lanzar_bolsa():
+        """Refresh the easy page's prices in the background: Stooq for the traditional markets (at most every 6 h)
+        and the daily Kraken candles for the crypto pairs (one cheap OHLC call each, no Trades backfill)."""
+        trabajo = {"estado": "corriendo", "log": []}
+        if not _reservar("bolsa", trabajo):
+            return False
+
+        def correr():
+            avisar = _registrar(trabajo, "Datos")
+            try:
+                from sala import bolsa
+                bolsa.actualizar(avisar=avisar)
+                try:
+                    from sala import historico
+                    historico.actualizar(intervalos=[1440], dias=0, max_llamadas=0, avisar=avisar)
+                except Exception as e:   # crypto is a bonus here: the traditional markets are already saved
+                    avisar(f"Cripto sin datos nuevos ({e})")
+                trabajo["estado"] = "ok"
+            except Exception as e:
+                trabajo["log"].append(f"{time.strftime('%H:%M:%S')}  Error: {e}")
+                trabajo["estado"] = "error"
+
+        threading.Thread(target=correr, daemon=True).start()
+        return True
+
+    app.lanzar_bolsa = lanzar_bolsa   # the tests swap it for a fake
+
     @app.route("/")
+    def facil():
+        from sala import bolsa
+        return render_template("facil.html", tarjetas=bolsa.tarjetas(), banner=bolsa.banner(), umbrales=bolsa.UMBRALES_TEXTO,
+                               trabajo=trabajos.get("bolsa"))
+
+    @app.post("/bolsa")
+    def encargar_bolsa():
+        lanzado = app.lanzar_bolsa() is not False
+        if request.form.get("ajax"):
+            return {"ok": lanzado, "trabajo": trabajos.get("bolsa")}, (200 if lanzado else 409)
+        flash("Actualizando precios; tarda unos segundos." if lanzado else "Ya se están actualizando los precios.", "ok" if lanzado else "error")
+        return redirect(url_for("facil"))
+
+    @app.get("/facil/estado")
+    def facil_estado():
+        return {"trabajo": trabajos.get("bolsa"), "hora": time.strftime("%H:%M:%S")}
+
+    @app.route("/sala")
     def sala():
         return render_template("sala.html", r=mercado.resumen(), automatico=_automaticos(), trabajo=trabajos.get("vigia"),
                                calendario_job=trabajos.get("calendario"), telegram=bot.activo, reglas=equipo_mod.REGLAS_RIESGO)
