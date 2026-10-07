@@ -104,12 +104,19 @@ def crear_panel(vigia=True, bot=None):
                     trabajo["estado"] = "ok"
                     if alertas and nucleo.automatico(cfg, "alertas"):
                         bot.texto("\n".join(a["texto"] for a in alertas) + "\n(La Madriguera Trading · datos públicos, sin dinero real)")
+                if nucleo.automatico(cfg, "analisis") and hasattr(app, "lanzar_analisis") and intento_analisis.get("dia") != date.today().isoformat():
+                    from sala import analista
+                    if analista.toca(cfg=cfg) and analista.claude_disponible():
+                        intento_analisis["dia"] = date.today().isoformat()   # one automatic try a day, even if it fails
+                        app.lanzar_analisis()
                 if nucleo.automatico(cfg, "parte") and mercado.toca_parte(cfg=cfg):
                     if bot.texto(mercado.parte(cfg)):
                         mercado.anotar_parte_enviado()
             except Exception as e:   # never let the lookout die
                 trabajos["vigia"] = {"estado": "error", "log": [f"{time.strftime('%H:%M:%S')}  Error: {e}"]}
             time.sleep(60)
+
+    intento_analisis = {}
 
     if vigia:
         threading.Thread(target=vigilar_bucle, daemon=True).start()
@@ -225,11 +232,45 @@ def crear_panel(vigia=True, bot=None):
 
     app.lanzar_bolsa = lanzar_bolsa   # the tests swap it for a fake
 
+    def lanzar_analisis():
+        """The daily AI analysis (one Claude call) in the background; False when one is already running."""
+        trabajo = {"estado": "corriendo", "log": []}
+        if not _reservar("analisis", trabajo):
+            return False
+
+        def correr():
+            avisar = _registrar(trabajo, "Mesa")
+            try:
+                from sala import analista
+                analista.hacer(avisar=avisar)
+                trabajo["estado"] = "ok"
+            except Exception as e:
+                trabajo["log"].append(f"{time.strftime('%H:%M:%S')}  Error: {e}")
+                trabajo["estado"] = "error"
+
+        threading.Thread(target=correr, daemon=True).start()
+        return True
+
+    app.lanzar_analisis = lanzar_analisis   # the tests swap it for a fake
+
     @app.route("/")
     def facil():
-        from sala import bolsa
+        from sala import analista, bolsa
         return render_template("facil.html", tarjetas=bolsa.tarjetas(), banner=bolsa.banner(), umbrales=bolsa.UMBRALES_TEXTO,
-                               trabajo=trabajos.get("bolsa"))
+                               trabajo=trabajos.get("bolsa"), analisis=analista.ultimo(), claude_ok=analista.claude_disponible(),
+                               trabajo_analisis=trabajos.get("analisis"), hoy=date.today().isoformat())
+
+    @app.post("/analisis")
+    def encargar_analisis():
+        lanzado = app.lanzar_analisis() is not False
+        if request.form.get("ajax"):
+            return {"ok": lanzado, "trabajo": trabajos.get("analisis")}, (200 if lanzado else 409)
+        flash("Haciendo el análisis; tarda un par de minutos." if lanzado else "El análisis ya se está haciendo.", "ok" if lanzado else "error")
+        return redirect(url_for("facil"))
+
+    @app.get("/analisis/estado")
+    def analisis_estado():
+        return {"trabajo": trabajos.get("analisis"), "hora": time.strftime("%H:%M:%S")}
 
     @app.post("/bolsa")
     def encargar_bolsa():

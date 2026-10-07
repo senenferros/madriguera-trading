@@ -20,7 +20,8 @@ CONFIG_POR_DEFECTO = {
     "hora_parte": "08:00",
     "alertas": {"volumen_x": 3, "enfriamiento_minutos": 30, "minimo_velas_dia": 30},
     "conservar_dias": 400,
-    "automatico": {"velas": True, "alertas": True, "parte": True},
+    "automatico": {"velas": True, "alertas": True, "parte": True, "analisis": True},
+    "analisis": {"noticias": True, "hora": "08:00"},   # daily AI analysis of the easy page (sala/analista.py)
     "historico": {
         "intervalos": [1, 60, 1440],     # OHLC tails downloaded each run: live 1-min, 30 days of hourly (cross-check), 2 years of daily
         "dias_trades": 90,               # how far back the Trades backfill looks for gaps

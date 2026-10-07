@@ -7,6 +7,16 @@
   .banner p { font-size: 18px; margin: 0; color: var(--texto); }
   .banner.no { border-left: 8px solid var(--suave); }
   .banner.si { border-left: 8px solid var(--aviso); }
+  .analisis { border-radius: 18px; padding: 20px 24px; margin-bottom: 22px; border: 1px solid var(--borde); background: linear-gradient(180deg, var(--panel2), var(--panel)); box-shadow: var(--sombra); border-left: 8px solid var(--acento); }
+  .analisis h2 { font-size: 24px; margin: 0 0 8px; }
+  .analisis p { font-size: 17px; margin: 6px 0; }
+  .analisis .pie { font-size: 14px; color: var(--suave); }
+  .ia { border-top: 1px solid var(--borde); padding-top: 10px; font-size: 16px; display: flex; flex-direction: column; gap: 6px; }
+  .ia p { margin: 0; }
+  .ia .etq { font-weight: 600; color: var(--acento); }
+  .riesgo { display: inline-block; padding: 1px 10px; border-radius: 10px; font-weight: 600; font-size: 14px; }
+  .riesgo.bajo { background: rgba(62,207,127,.2); } .riesgo.medio { background: rgba(242,196,109,.25); } .riesgo.alto { background: rgba(255,90,106,.25); }
+  .corregido { font-size: 13px; color: var(--aviso); }
   .barra { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 0 0 18px; }
   .barra button { font-size: 17px; padding: 12px 22px; }
   .barra .estado { color: var(--suave); }
@@ -42,6 +52,26 @@
   <p>{{ banner.texto }}</p>
 </section>
 
+<section class="analisis" id="analisis">
+  <h2>Análisis de hoy</h2>
+  {% if analisis %}
+    <p><strong>{{ analisis.titular }}</strong></p>
+    <p>{{ analisis.resumen_general }}</p>
+    <p class="pie">Hecho el {{ analisis.fecha }} a las {{ analisis.hora }} · datos hasta el {{ analisis.t_corte }}{% if analisis.fecha != hoy %} · <strong>no es de hoy</strong>{% endif %}. {{ analisis.aviso }}</p>
+  {% elif not claude_ok %}
+    <p>Todavía no hay análisis, y no se puede hacer: falta Claude Code (el programa «claude») en este ordenador. Instálalo e inicia sesión, y luego pulsa el botón.</p>
+  {% else %}
+    <p>Todavía no hay análisis. Pulsa el botón y en un par de minutos lo tendrás.</p>
+  {% endif %}
+  {% if not analisis or analisis.fecha != hoy %}
+  <form method="post" action="{{ url_for('encargar_analisis') }}" id="form-analisis">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <button type="submit" id="boton-analisis" {{ 'disabled' if trabajo_analisis and trabajo_analisis.estado == 'corriendo' }}>Hacer el análisis de hoy</button>
+    <span class="estado" id="estado-analisis">{% if trabajo_analisis and trabajo_analisis.estado == 'corriendo' %}Analizando…{% elif trabajo_analisis and trabajo_analisis.estado == 'error' %}{{ trabajo_analisis.log[-1] }}{% endif %}</span>
+  </form>
+  {% endif %}
+</section>
+
 <div class="barra">
   <form method="post" action="{{ url_for('encargar_bolsa') }}" id="form-bolsa">
     <input type="hidden" name="_csrf" value="{{ csrf_token }}">
@@ -60,6 +90,16 @@
     <p class="titular">{{ t.titular }}</p>
     {% if t.datos %}<ul class="datos">{% for d in t.datos %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
     {% if t.nota %}<p class="nota">{{ t.nota }}</p>{% endif %}
+    {% set ia = analisis.mercados.get(t.clave) if analisis else None %}
+    {% if ia %}
+    <div class="ia">
+      <p>{{ ia.resumen }}</p>
+      <p><span class="etq">Qué vigilar:</span> {{ ia.que_vigilar }}</p>
+      <p><span class="etq">Riesgo:</span> <span class="riesgo {{ ia.riesgo.nivel }}">{{ ia.riesgo.nivel }}</span> {{ ia.riesgo.motivo }}</p>
+      {% if ia.noticia %}<p><span class="etq">Noticia ({{ ia.noticia.fecha }}):</span> {{ ia.noticia.texto }} <a href="{{ ia.noticia.fuente }}" rel="noopener noreferrer" target="_blank">fuente</a></p>{% endif %}
+      {% if ia.corregido %}<p class="corregido">{{ ia.corregido }}</p>{% endif %}
+    </div>
+    {% endif %}
     <details><summary>¿Qué significa?</summary>{{ t.explicacion }}</details>
   </article>
 {% endfor %}
@@ -94,6 +134,23 @@
       .catch(() => { boton.disabled = false; estado.textContent = 'No se ha podido pedir la actualización.'; });
   });
   {% if trabajo and trabajo.estado == 'corriendo' %}setTimeout(vigilar, 2000);{% endif %}
+  const fa = document.getElementById('form-analisis');
+  function vigilarAnalisis() {
+    fetch('{{ url_for("analisis_estado") }}').then(r => r.json()).then(d => {
+      const t = d.trabajo;
+      if (t && t.estado === 'corriendo') { setTimeout(vigilarAnalisis, 3000); return; }
+      location.reload();
+    }).catch(() => setTimeout(vigilarAnalisis, 5000));
+  }
+  if (fa) fa.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    document.getElementById('boton-analisis').disabled = true;
+    const est = document.getElementById('estado-analisis'); est.textContent = 'Analizando… (un par de minutos)';
+    const datos = new FormData(fa); datos.append('ajax', '1');
+    fetch(fa.action, {method: 'POST', body: datos}).then(() => setTimeout(vigilarAnalisis, 2000))
+      .catch(() => { document.getElementById('boton-analisis').disabled = false; est.textContent = 'No se ha podido pedir el análisis.'; });
+  });
+  {% if trabajo_analisis and trabajo_analisis.estado == 'corriendo' %}setTimeout(vigilarAnalisis, 3000);{% endif %}
 })();
 </script>
 {% endblock %}

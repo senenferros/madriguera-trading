@@ -21,6 +21,8 @@ Usage:
                                the strategies available
     python app.py bolsa [--sin-red]
                                refresh the easy page's prices (Yahoo Finance + Kraken daily) and print the traffic lights
+    python app.py analisis
+                               the daily AI analysis of those markets (needs Claude Code); exit 0 saved, 1 no claude
 """
 import argparse
 import sys
@@ -288,6 +290,18 @@ def cmd_bolsa(args):
     return 0
 
 
+def cmd_analisis(args):
+    from sala import analista, bolsa
+    try:
+        datos = analista.hacer(avisar=lambda m: print("  " + bolsa.ascii_(m)))
+    except RuntimeError as err:
+        print(bolsa.ascii_(str(err)))
+        return 1
+    print()
+    print("\n".join(analista.texto_cli(datos)))
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(prog="app.py", description="La Madriguera Trading")
     sub = parser.add_subparsers(dest="cmd")
@@ -315,12 +329,13 @@ def main():
     b.add_argument("--lista", action="store_true", help="Lista las estrategias")
     bo = sub.add_parser("bolsa", help="Actualiza los precios de la portada y muestra los semáforos")
     bo.add_argument("--sin-red", action="store_true", dest="sin_red", help="Solo muestra lo guardado, sin descargar")
+    sub.add_parser("analisis", help="Análisis de cada día con IA de los mercados de la portada (necesita Claude Code)")
     args = parser.parse_args()
     if not args.cmd:
         args.cmd, args.sin_navegador = "panel", False
     return {"comprobar": cmd_comprobar, "vigilar": cmd_vigilar, "panel": cmd_panel,
             "historico": cmd_historico, "backtest": cmd_backtest,
-            "bolsa": cmd_bolsa}[args.cmd](args)
+            "bolsa": cmd_bolsa, "analisis": cmd_analisis}[args.cmd](args)
 
 
 if __name__ == "__main__":

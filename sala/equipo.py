@@ -29,6 +29,7 @@ AUTOMATICOS = {
     "velas": "Vigilar el mercado (velas cada minuto)",
     "alertas": "Avisar por Telegram (roturas del día y picos de volumen)",
     "parte": "Parte diario por Telegram (a la hora de config.yaml)",
+    "analisis": "Análisis de cada día con IA (a la hora de config.yaml)",
 }
 REGLAS_RIESGO = [
     "1 % de riesgo por operación",

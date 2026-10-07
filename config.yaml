@@ -14,6 +14,11 @@ automatico:
   velas: true
   alertas: true
   parte: true
+  analisis: true
+# Análisis de cada día con IA (python app.py analisis). noticias: busca 1 noticia fechada por mercado
+analisis:
+  noticias: true
+  hora: '08:00'
 # Histórico de Kraken: python app.py historico
 historico:
   intervalos:

@@ -28,6 +28,19 @@ Debajo, una tarjeta por mercado con un **semáforo**: S&P 500, IBEX 35, oro, pla
 
 Cada tarjeta enseña el precio, cuánto ha cambiado hoy, este mes y este año, y un «¿Qué significa?» que explica en una línea qué es ese mercado. Los precios de bolsa son diarios y gratuitos, de Yahoo Finance (se guardan en `datos/bolsa/` y se descargan como mucho cada 6 horas; si falla la conexión, la tarjeta dice «sin datos nuevos desde …»). Bitcoin y Ethereum salen del histórico de Kraken. El botón **«Actualizar precios»** los refresca. Los mercados se cambian en `config.yaml`, sección `mercados_extra`. Todo lo demás (la sala de siempre) está en **«Modo experto»** (`/sala`).
 
+## Análisis de cada día
+
+Cada día a las 08:00 (se cambia en `config.yaml`, sección `analisis`) una IA escribe un resumen de los 8 mercados de
+la portada: un titular, unas frases para todos, y en cada tarjeta qué está pasando, qué vigilar y si el riesgo es bajo,
+medio o alto. También con el botón «Hacer el análisis de hoy» o con `python app.py analisis`. Necesita Claude Code
+(el programa `claude`) instalado y con la sesión iniciada; si falta, la portada lo dice.
+
+Es honesto a propósito: la IA solo ve los números que ya tiene la sala (con su fecha de corte), y si cita un número
+que no está ahí, ese mercado se muestra solo con los datos. Cualquier frase que suene a «compra» o «vende» se borra.
+Con `noticias: true` puede añadir una noticia por mercado, siempre con su fecha y su fuente. Se guarda en
+`datos/analisis/`, con lo que ha costado. Se puede apagar en el modo experto (interruptor «Análisis de cada día»).
+No es un consejo de inversión.
+
 ## Las fases
 
 | Fase | Qué | Dinero |
