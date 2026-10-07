@@ -1,186 +1,309 @@
 {% extends "base.html" %}
 {% block titulo %}Oficina · {{ nombre_sala }}{% endblock %}
 {% block cabeza %}
+<link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet">
 <style>
-  .escena { background: linear-gradient(180deg, var(--panel2), var(--panel)); border: 1px solid var(--borde); border-radius: 16px; box-shadow: var(--sombra); padding: 10px; margin: 16px 0 20px; }
-  .escena canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
-  .hud { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
-  .hud .dep { background: linear-gradient(180deg, var(--panel2), var(--panel)); border: 1px solid var(--borde); border-radius: 14px; padding: 12px 14px; display: flex; gap: 12px; align-items: center; }
-  .hud b { display: block; font: 600 14px 'Space Grotesk', Inter, sans-serif; }
-  .hud small { color: var(--suave); font-size: 12px; display: block; }
-  .hud .pts { margin-left: auto; text-align: right; font: 700 18px 'Space Grotesk', sans-serif; white-space: nowrap; }
-  .equipo { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
-  .persona { background: linear-gradient(180deg, var(--panel2), var(--panel)); border: 1px solid var(--borde); border-radius: 14px; padding: 14px; display: flex; gap: 12px; }
-  .avatar { width: 44px; height: 44px; border-radius: 12px; flex: none; position: relative; overflow: hidden; background: var(--acento-suave); }
-  .avatar i { position: absolute; left: 12px; top: 8px; width: 20px; height: 20px; border-radius: 50%; }
-  .avatar s { position: absolute; left: 10px; top: 5px; width: 24px; height: 10px; border-radius: 12px 12px 3px 3px; }
-  .avatar u { position: absolute; left: 7px; top: 29px; width: 30px; height: 20px; border-radius: 10px 10px 0 0; }
-  .persona b { display: block; font: 600 14px 'Space Grotesk', Inter, sans-serif; }
-  .persona .rol { color: var(--acento); font-size: 12px; font-weight: 600; }
-  .persona p { margin: 6px 0 0; font-size: 13px; color: var(--suave); }
-  .persona .auto { display: inline-block; margin-top: 6px; font-size: 11px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--borde); }
-  .persona .auto.on { color: var(--ok); border-color: rgba(95,211,154,.4); } .persona .auto.off { color: var(--suave); }
+  /* Same look as the Shorts office: dark isometric room, painted floor names, lit screens, little people at their desks */
+  .cartel { text-align: center; margin: 4px 0 14px; }
+  .cartel h1 { font: 400 clamp(30px, 7vw, 64px)/1 Anton, Impact, "Arial Black", sans-serif; letter-spacing: .06em; margin: 0;
+               color: var(--texto); text-shadow: 0 0 18px rgba(76,195,138,.45), 3px 3px 0 rgba(0,0,0,.5); }
+  .cartel h1 em { color: var(--acento); font-style: normal; }
+  .cartel .sim { display: inline-block; margin-top: 8px; }
+  .escena-caja { background: #09080a; border-radius: 18px; overflow: auto; position: relative; border: 1px solid var(--borde); box-shadow: var(--sombra); -webkit-overflow-scrolling: touch; }
+  .escena-caja canvas { display: block; width: 100%; height: auto; touch-action: pan-x pan-y; }
+  .escena-caja.cerca canvas { width: 220%; }
+  .barra-of { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin: 0 0 10px; color: var(--suave); font-size: 13px; }
+  .barra-of button { font-size: 13px; padding: 6px 12px; }
+  .luces { display: flex; gap: 10px; flex-wrap: wrap; }
+  .luces span { display: inline-flex; align-items: center; gap: 6px; }
+  .luces i, .pant i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; flex: none; }
+  .deps { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; margin-top: 20px; }
+  .dep { background: linear-gradient(180deg, var(--panel2), var(--panel)); border: 1px solid var(--borde); border-radius: 14px; padding: 14px; border-top: 5px solid var(--c); min-width: 0; }
+  .dep h2 { font: 400 22px/1.1 Anton, Impact, "Arial Black", sans-serif; letter-spacing: .04em; color: var(--c); margin: 0 0 8px; text-transform: uppercase; }
+  .pant { background: #0b0e13; border: 1px solid #1f2630; border-radius: 10px; padding: 8px 10px; margin: 0 0 8px; font-size: 13px; }
+  .pant b { display: flex; gap: 8px; align-items: center; font-weight: 600; }
+  .pant .v { display: block; font: 600 15px "Space Grotesk", Inter, sans-serif; overflow-wrap: anywhere; }
+  .pant small { color: var(--suave); display: block; overflow-wrap: anywhere; }
+  .gente { color: var(--suave); font-size: 12px; margin-top: 6px; }
+  @media (max-width: 700px) { .escena-caja.cerca canvas { width: 320%; } }
 </style>
 {% endblock %}
 {% block contenido %}
-<div style="display:flex;flex-wrap:wrap;gap:12px 20px;align-items:baseline"><h1>🏢 Oficina</h1><span class="sim">Simulación · datos públicos · sin dinero real</span></div>
-<p class="sub">La sala vista desde arriba: el rótulo de cotizaciones, las tres pantallas con los cierres de hoy, la pizarra con las reglas y las siete personas del equipo.</p>
+<div class="cartel">
+  <h1>LA MADRIGUERA <em>TRADING</em></h1>
+  <span class="sim">Simulación · datos públicos · sin dinero real</span>
+</div>
+<div class="barra-of">
+  <div class="luces" id="luces"></div>
+  <div><span id="hora">{{ o.hora }}</span> · <button type="button" id="btn-zoom">🔍 Acercar</button> <button type="button" id="btn-quietos">🧍 Quietos</button></div>
+</div>
+<div class="escena-caja" id="escena"><canvas id="lienzo" width="1200" height="760" aria-label="Oficina de La Madriguera Trading vista desde arriba"></canvas></div>
 
-<div class="hud" id="hud"></div>
-<div class="escena"><canvas id="sala" width="1100" height="560"></canvas></div>
-
-<h2>👥 El equipo</h2>
-<div class="equipo">
-  {% for m in equipo %}
-  <div class="persona">
-    <div class="avatar"><s style="background:{{ m.pelo }}"></s><i style="background:{{ m.piel }}"></i><u style="background:{{ m.ropa }}"></u></div>
-    <div><b>{{ m.nombre }}</b><span class="rol">{{ m.rol_nombre }}</span><p>{{ m.funcion }}</p><p style="font-style:italic">{{ m.persona }}</p>
-      {% if m.automatico and m.automatico in automatico %}<span class="auto {{ 'on' if automatico[m.automatico].activo else 'off' }}">{{ '▶' if automatico[m.automatico].activo else '⏸' }} {{ automatico[m.automatico].nombre }}</span>{% endif %}</div>
-  </div>
+<div class="deps" id="deps">
+  {% for d in o.departamentos %}
+  <section class="dep" style="--c: {{ d.color }}" data-dep="{{ d.id }}">
+    <h2>{{ d.nombre }}</h2>
+    {% for p in d.pantallas %}
+    <div class="pant"><b><i class="luz-{{ p.color }}"></i>{{ p.titulo }}</b><span class="v">{{ p.valor }}</span><small>{{ p.linea }}</small>{% if p.texto %}<small>{{ p.texto }}</small>{% endif %}</div>
+    {% endfor %}
+    <div class="gente">👥 {% for t in d.trabajadores %}{{ t.nombre }}{% if t.rol %} ({{ t.rol }}){% endif %}{{ ", " if not loop.last }}{% endfor %}</div>
+  </section>
   {% endfor %}
 </div>
-<p class="aviso-legal">Esto no es asesoramiento financiero. Todo lo que aparece aquí es simulación y datos públicos.</p>
+<p class="sub" style="margin-top:16px">Equipo: {% for m in equipo %}{{ m.nombre }}{{ ", " if not loop.last }}{% endfor %}. Los bots y cualquier cifra de dinero son <b>simulación</b>: aquí no se compra ni se vende nada.</p>
 
+<script id="datos-oficina" type="application/json">{{ o | tojson }}</script>
 <script>
-const EQUIPO = {{ equipo|tojson }}, REGLAS = {{ reglas|tojson }};
-let mercado = {{ r|tojson }}, tAnim = 0;
-const cv = document.getElementById('sala'), ctx = cv.getContext('2d');
-const VERDE = '#4cc38a', ROJO = '#f08a80', GRIS = '#8f98a6', CLARO = '#e6eaf1';
-const ORIGEN = {x: 550, y: 130}, T = 46;   // isometric origin and tile size (world units -> pixels)
+// ---------- data ----------
+let O = JSON.parse(document.getElementById('datos-oficina').textContent);
+const LUZ = {verde: '#3ecf6e', amarillo: '#f2c46d', rojo: '#ff5a6a', gris: '#6b7280', morado: '#b38cff', cian: '#4fd1d9'};
+document.querySelectorAll('.pant i').forEach(i => { i.style.background = LUZ[i.className.replace('luz-', '')] || LUZ.gris; });
+function pintarLuces() {
+  const l = O.luces || {};
+  document.getElementById('luces').innerHTML = ['verde', 'amarillo', 'rojo', 'gris'].map(c =>
+    `<span><i style="background:${LUZ[c]}"></i>${l[c] || 0} ${c === 'gris' ? 'sin datos' : c}</span>`).join('');
+}
+pintarLuces();
 
-function escapar(s) { return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c])); }
-const cambioPct = x => x == null ? '—' : (x >= 0 ? '+' : '') + x.toFixed(2).replace('.', ',') + ' %';
-// world (x to the right-down, y to the left-down, z up) -> screen
-const iso = (x, y, z = 0) => ({x: ORIGEN.x + (x - y) * T, y: ORIGEN.y + (x + y) * T / 2 - z});
-
-function poligono(puntos, relleno, borde) {
-  ctx.beginPath(); puntos.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath();
-  if (relleno) { ctx.fillStyle = relleno; ctx.fill(); }
-  if (borde) { ctx.strokeStyle = borde; ctx.lineWidth = 1; ctx.stroke(); }
+// ---------- geometry (the Shorts office's isometric projection) ----------
+const TW = 64, TH = 32, L = Math.hypot(TW / 2, TH / 2), MURO = '#2c333d', MURO_ALTO = 120;
+const lienzo = document.getElementById('lienzo');
+let ctx = lienzo.getContext('2d'), origenX = 0, origenY = 0, tAnim = 0;
+const RW = 11, RD = 10, COLS = 4, FILAS = 2, W = COLS * RW + 1, H = FILAS * RD + 1;
+function pantalla(x, y, z = 0) { return [origenX + (x - y) * TW / 2, origenY + (x + y) * TH / 2 - z]; }
+function sombra(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  const c = [n >> 16, (n >> 8) & 255, n & 255].map(v => Math.max(0, Math.min(255, Math.round(v * f))));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
-// a box standing on the floor: x, y, width (along x), depth (along y), height (z); shaded faces
-function caja(x, y, w, d, h, color) {
-  const sombra = c => c.replace(/[\da-f]{2}$/i, m => Math.max(0, parseInt(m, 16) - 40).toString(16).padStart(2, '0'));
-  poligono([iso(x, y, h), iso(x + w, y, h), iso(x + w, y + d, h), iso(x, y + d, h)], color);                  // top
-  poligono([iso(x, y + d, h), iso(x + w, y + d, h), iso(x + w, y + d, 0), iso(x, y + d, 0)], sombra(color));  // front-left
-  poligono([iso(x + w, y, h), iso(x + w, y + d, h), iso(x + w, y + d, 0), iso(x + w, y, 0)], sombra(sombra(color)));  // front-right
+function mezcla(a, b, t) {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+  const c = [16, 8, 0].map(s => Math.round(((pa >> s) & 255) * (1 - t) + ((pb >> s) & 255) * t));
+  return '#' + c.map(v => v.toString(16).padStart(2, '0')).join('');
 }
-// draw with a 2D painter inside a quad of the back wall (x along the wall, z up); w,h in world units -> px canvas
-function enPared(x, z, w, h, pintar) {
-  const a = iso(x, 0, z), b = iso(x + w, 0, z), c = iso(x, 0, z - h);
-  ctx.save();
-  ctx.transform((b.x - a.x) / 100, (b.y - a.y) / 100, 0, (c.y - a.y) / 100, a.x, a.y);   // 100x100 local units
-  ctx.beginPath(); ctx.rect(0, 0, 100, 100); ctx.clip();
-  pintar(100, 100); ctx.restore();
+function poligono(p, color) { ctx.beginPath(); ctx.moveTo(...p[0]); for (const q of p.slice(1)) ctx.lineTo(...q); ctx.closePath(); ctx.fillStyle = color; ctx.fill(); }
+function caja(x, y, w, d, h, color, z = 0) {
+  const a = pantalla(x, y, z + h), b = pantalla(x + w, y, z + h), c = pantalla(x + w, y + d, z + h), e = pantalla(x, y + d, z + h);
+  const c0 = pantalla(x + w, y + d, z), e0 = pantalla(x, y + d, z), b0 = pantalla(x + w, y, z);
+  poligono([e, c, c0, e0], sombra(color, 0.78)); poligono([c, b, b0, c0], sombra(color, 0.62)); poligono([a, b, c, e], color);
 }
-function texto(s, x, y, fuente, color, alinear = 'left') { ctx.font = fuente; ctx.fillStyle = color; ctx.textAlign = alinear; ctx.fillText(s, x, y); ctx.textAlign = 'left'; }
-
-function suelo() {
-  for (let x = 0; x < 10; x++) for (let y = 0; y < 8; y++)
-    poligono([iso(x, y), iso(x + 1, y), iso(x + 1, y + 1), iso(x, y + 1)], (x + y) % 2 ? '#1a212b' : '#171d26', '#20283366');
-  // back walls
-  poligono([iso(0, 0, 0), iso(10, 0, 0), iso(10, 0, 150), iso(0, 0, 150)], '#131920', '#262e3a');
-  poligono([iso(0, 0, 0), iso(0, 8, 0), iso(0, 8, 150), iso(0, 0, 150)], '#10151c', '#262e3a');
+function baldosa(x, y, color) { poligono([pantalla(x, y), pantalla(x + 1, y), pantalla(x + 1, y + 1), pantalla(x, y + 1)], color); }
+// flat 2D content on a wall facing +y, and on the floor (u along x, v along y)
+function enPared(x, y, z, ancho, alto, dibujar) {
+  const [ox, oy] = pantalla(x, y, z + alto); ctx.save(); ctx.transform(TW / 2 / L, TH / 2 / L, 0, 1, ox, oy); dibujar(ancho * L, alto); ctx.restore();
 }
-function ticker() {
-  // LED ticker along the back wall with the live prices scrolling slowly
-  const pares = mercado.pares || [];
-  const linea = (pares.length ? pares.map(p => `${p.nombre || p.par}  ${p.precio == null ? 'SIN DATOS' : p.texto}${p.cambio_dia != null ? '  ' + cambioPct(p.cambio_dia) : ''}`) : ['SIN DATOS']).join('     ·     ');
-  enPared(0.3, 142, 9.4, 14, (w, h) => {
-    ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, w, h);
-    ctx.font = '700 5.5px "Space Grotesk", Inter, sans-serif'; ctx.fillStyle = mercado.sin_conexion ? '#ffb020' : VERDE;
-    const paso = ctx.measureText(linea).width + 30, off = (tAnim / 40) % paso;
-    for (let px = -off; px < w; px += paso) ctx.fillText(linea, px, h * 0.68);
+function enSuelo(x, y, ancho, fondo, dibujar) {
+  const [ox, oy] = pantalla(x, y); ctx.save(); ctx.transform(TW / 2 / L, TH / 2 / L, -TW / 2 / L, TH / 2 / L, ox, oy); dibujar(ancho * L, fondo * L); ctx.restore();
+}
+// wide letters painted on the floor, stretched like road markings
+function pintarSuelo(p) {
+  enSuelo(p.x, p.y, p.ancho, p.fondo, (w, h) => {
+    ctx.font = `${Math.round(h * 0.9)}px Anton, Impact, "Arial Black", sans-serif`;
+    const medida = ctx.measureText(p.texto).width || 1, sx = Math.min(1.25, (w * 0.96) / medida);
+    ctx.save(); ctx.translate(w / 2, h * 0.86); ctx.scale(sx, 1); ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillText(p.texto, 3, 3);
+    ctx.globalAlpha = p.alfa || 0.82; ctx.fillStyle = p.color; ctx.fillText(p.texto, 0, 0); ctx.restore();
   });
 }
-function pantalla(i, x) {
-  // one wall screen per pair with today's closes; without data, a quiet sine wave
-  const p = (mercado.pares || [])[i];
-  enPared(x, 118, 2.6, 56, (w, h) => {
-    ctx.fillStyle = '#0a0d12'; ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = 'rgba(120,140,160,.18)'; ctx.lineWidth = 0.5;
-    for (let k = 1; k < 4; k++) { ctx.beginPath(); ctx.moveTo(0, h * k / 4); ctx.lineTo(w, h * k / 4); ctx.stroke(); }
-    const serie = p && p.cierres && p.cierres.length > 1 ? p.cierres : Array.from({length: 24}, (_, k) => Math.sin(k * 0.7 + i * 2 + tAnim / 300) * 0.4);
-    const vmin = Math.min(...serie), vmax = Math.max(...serie, vmin + 1e-9), sube = serie[serie.length - 1] >= serie[0];
-    ctx.strokeStyle = p && p.cierres && p.cierres.length > 1 ? (sube ? VERDE : ROJO) : '#3a4656'; ctx.lineWidth = 1.4; ctx.beginPath();
-    serie.forEach((v, k) => { const px = 4 + (w - 8) * k / Math.max(1, serie.length - 1), py = h - 14 - (h - 28) * (v - vmin) / (vmax - vmin); k ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
-    ctx.stroke();
-    texto(p ? (p.nombre || p.par) : 'PANTALLA ' + (i + 1), 4, 9, '700 7px Inter, sans-serif', GRIS);
-    if (p && p.precio != null) texto(p.texto, w - 4, 9, '800 7px "Space Grotesk", sans-serif', CLARO, 'right');
-    if (p && p.cambio_dia != null) texto(cambioPct(p.cambio_dia), w - 4, h - 4, '700 6.5px Inter, sans-serif', p.cambio_dia >= 0 ? VERDE : ROJO, 'right');
+function recorta(texto, ancho) {
+  texto = String(texto || ''); if (ctx.measureText(texto).width <= ancho) return texto;
+  while (texto.length > 1 && ctx.measureText(texto + '…').width > ancho) texto = texto.slice(0, -1);
+  return texto + '…';
+}
+
+// ---------- layout ----------
+let cosas0 = [], pinturas = [], puestos = [];
+function construir() {
+  cosas0 = []; pinturas = []; puestos = [];
+  O.departamentos.forEach((d, i) => {
+    const x0 = 1 + (i % COLS) * RW, y0 = 1 + Math.floor(i / COLS) * RD;
+    d.caja = {x0, y0, x1: x0 + RW - 2, y1: y0 + RD - 2};
+    // partitions with a door, like the Shorts departments
+    for (let y = y0; y < y0 + RD - 1; y++) if (y !== y0 + 6) cosas0.push({k: x0 + RW - 1 + y + 0.9, f: () => caja(x0 + RW - 1, y, 1, 1, 14, '#3a424e')});
+    if (i < COLS) for (let x = x0; x < x0 + RW; x++) if (x !== x0 + 4 && x !== x0 + 5) cosas0.push({k: x + y0 + RD - 1 + 0.9, f: () => caja(x, y0 + RD - 1, 1, 1, 14, '#3a424e')});
+    // the video wall at the back of the room: one lit panel per screen of data
+    cosas0.push({k: x0 + 9 + y0 + 0.7, f: () => muroPantallas(d, x0 + 0.6, y0 + 0.25)});
+    pinturas.push({x: x0 + 0.3, y: y0 + 1.1, ancho: RW - 1.6, fondo: 2.1, texto: d.nombre.toUpperCase(), color: d.color});
+    // two rows of desks; the workers sit at the first ones
+    const sitios = [[x0 + 1, y0 + 4], [x0 + 4, y0 + 4], [x0 + 7, y0 + 4], [x0 + 1, y0 + 6.6], [x0 + 4, y0 + 6.6], [x0 + 7, y0 + 6.6]];
+    sitios.forEach(([mx, my], j) => {
+      const p = d.pantallas[j % Math.max(1, d.pantallas.length)] || {color: 'gris'};
+      cosas0.push({k: mx + my + 1.1, f: () => escritorio(mx, my, LUZ[p.color] || d.color)});
+      const t = d.trabajadores[j];
+      if (t) puestos.push({...t, x: mx + 0.1, y: my + 1.15, ropa: t.ropa || d.color, fase: j * 900 + i * 333, dep: d});
+    });
+    cosas0.push({k: x0 + RW - 2 + y0 + RD - 2 + 0.5, f: () => planta(x0 + RW - 2.1, y0 + RD - 2.1)});
   });
-  // the console the screen stands on
-  caja(x, 0.05, 2.6, 0.5, 26, '#1b222c');
 }
-function pizarra() {
-  // whiteboard on the left wall with the five risk rules
-  const a = iso(0, 1.2, 128), b = iso(0, 5.2, 128), c = iso(0, 1.2, 50);
-  ctx.save();
-  ctx.transform((b.x - a.x) / 100, (b.y - a.y) / 100, 0, (c.y - a.y) / 100, a.x, a.y);
-  ctx.fillStyle = '#f3f2f6'; ctx.fillRect(0, 0, 100, 100); ctx.strokeStyle = '#9a96a3'; ctx.lineWidth = 1.5; ctx.strokeRect(0, 0, 100, 100);
-  texto('REGLAS DE RIESGO', 6, 14, '700 9px Inter, sans-serif', '#d9362b');
-  REGLAS.forEach((r, k) => texto(`${k + 1}. ${r}`, 6, 30 + k * 13, '600 7px Inter, sans-serif', '#2a2530'));
-  ctx.restore();
-}
-function persona(x, y, m, hablando) {
-  // a small figure sitting at a desk: body (clothes), head (skin), hair; the lookout gets a speech bubble
-  const p = iso(x, y, 0);
-  ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(p.x, p.y + 2, 11, 5, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = m.ropa; ctx.beginPath(); ctx.roundRect(p.x - 9, p.y - 30, 18, 28, 6); ctx.fill();
-  ctx.fillStyle = m.piel; ctx.beginPath(); ctx.arc(p.x, p.y - 38, 9, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = m.pelo; ctx.beginPath(); ctx.arc(p.x, p.y - 41, 9, Math.PI, 0); ctx.fill();
-  texto(m.nombre, p.x, p.y + 16, '600 10px Inter, sans-serif', CLARO, 'center');
-  texto(m.rol_nombre, p.x, p.y + 27, '500 8.5px Inter, sans-serif', GRIS, 'center');
-  if (hablando) {
-    ctx.font = '600 9px Inter, sans-serif'; const w = Math.min(190, ctx.measureText(hablando).width + 14);
-    ctx.fillStyle = 'rgba(230,234,241,.95)'; ctx.beginPath(); ctx.roundRect(p.x - w / 2, p.y - 72, w, 20, 8); ctx.fill();
-    ctx.save(); ctx.beginPath(); ctx.rect(p.x - w / 2, p.y - 72, w, 20); ctx.clip();
-    texto(hablando, p.x, p.y - 58, '600 9px Inter, sans-serif', '#0f141c', 'center'); ctx.restore();
+function muroPantallas(d, x, y) {
+  caja(x, y, 9.4, 0.25, 4, '#20252d');                         // low cabinet
+  for (const px of [x + 1, x + 8.2]) caja(px, y + 0.05, 0.2, 0.15, 30, '#3a3f48', 4);   // posts
+  caja(x, y, 9.4, 0.18, 46, '#121519', 30);                     // frame
+  const n = Math.min(3, d.pantallas.length), ancho = (9.4 - 0.4) / Math.max(1, n);
+  for (let k = 0; k < n; k++) {
+    const p = d.pantallas[k];
+    enPared(x + 0.2 + k * ancho, y + 0.18, 32, ancho - 0.15, 42, (w, h) => {
+      ctx.fillStyle = '#0b0f14'; ctx.fillRect(0, 0, w, h);
+      const c = LUZ[p.color] || LUZ.gris;
+      ctx.fillStyle = c; ctx.globalAlpha = 0.85 + Math.sin(tAnim / 700 + k) * 0.15;
+      ctx.beginPath(); ctx.arc(6, 6.5, 3.6, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;   // the traffic light
+      ctx.fillStyle = '#e6eaf1'; ctx.font = '700 6px Inter, sans-serif'; ctx.fillText(recorta(p.titulo, w - 14), 12, 9);
+      ctx.fillStyle = c; ctx.font = '700 8px "Space Grotesk", Inter, sans-serif'; ctx.fillText(recorta(p.valor, w - 6), 3, 21);
+      ctx.fillStyle = '#8f98a6'; ctx.font = '600 5px Inter, sans-serif'; ctx.fillText(recorta(p.linea, w - 6), 3, 30);
+      // a little moving chart line along the bottom
+      ctx.strokeStyle = c; ctx.lineWidth = 0.8; ctx.beginPath();
+      for (let u = 0; u <= w - 6; u += 2) { const v = h - 5 - 3 * Math.sin(u / 5 + tAnim / 600 + k * 2) - (p.color === 'verde' ? u / w * 3 : p.color === 'rojo' ? -u / w * 3 : 0); u ? ctx.lineTo(3 + u, v) : ctx.moveTo(3, v); }
+      ctx.stroke();
+    });
   }
 }
-function escritorio(x, y) { caja(x, y, 1.6, 0.9, 22, '#2a3341'); caja(x + 0.55, y + 0.1, 0.5, 0.05, 36, '#0d1117'); }
+function escritorio(mx, my, luz) {
+  caja(mx, my, 1.6, 0.9, 2, '#c9b391', 13);
+  for (const [px, py] of [[mx + 0.05, my + 0.05], [mx + 1.45, my + 0.05], [mx + 0.05, my + 0.75], [mx + 1.45, my + 0.75]]) caja(px, py, 0.08, 0.08, 13, '#7d6a52');
+  // monitor on a stand, lit screen facing the person (screen colour = the department's traffic light)
+  caja(mx + 0.62, my + 0.12, 0.3, 0.15, 0.8, '#2a2830', 15); caja(mx + 0.74, my + 0.16, 0.06, 0.05, 5, '#3a3840', 15.8);
+  caja(mx + 0.25, my + 0.2, 1.1, 0.05, 15, '#141218', 19);
+  const a = pantalla(mx + 0.3, my + 0.25, 32.5), b = pantalla(mx + 1.3, my + 0.25, 32.5), c = pantalla(mx + 1.3, my + 0.25, 20.5), e = pantalla(mx + 0.3, my + 0.25, 20.5);
+  const g = ctx.createLinearGradient(a[0], a[1], c[0], c[1]); g.addColorStop(0, luz); g.addColorStop(1, sombra(luz, 0.4)); poligono([a, b, c, e], g);
+  ctx.globalAlpha = 0.5; poligono([pantalla(mx + 0.38, my + 0.25, 30), pantalla(mx + 0.9, my + 0.25, 30), pantalla(mx + 0.9, my + 0.25, 28.6), pantalla(mx + 0.38, my + 0.25, 28.6)], '#ffffff'); ctx.globalAlpha = 1;
+  caja(mx + 0.4, my + 0.55, 0.7, 0.16, 0.8, '#2a2830', 15);   // keyboard
+  // office chair on the tile in front
+  caja(mx + 0.55, my + 1.3, 0.08, 0.08, 7, '#3a3840'); caja(mx + 0.35, my + 1.1, 0.5, 0.5, 2, '#1c1b22', 7); caja(mx + 0.35, my + 1.55, 0.5, 0.07, 11, '#1c1b22', 9);
+}
+function planta(x, y) {
+  caja(x + 0.25, y + 0.25, 0.5, 0.5, 9, '#6b4a35');
+  for (const [dx, dy, z, r] of [[0, 0, 22, 9], [-0.18, 0.1, 16, 7], [0.18, -0.05, 18, 7], [0.05, 0.2, 28, 6]]) {
+    const [sx, sy] = pantalla(x + 0.5 + dx, y + 0.5 + dy, z); ctx.fillStyle = z > 25 ? '#4f9a58' : (z > 20 ? '#3f8548' : '#2f6b3a');
+    ctx.beginPath(); ctx.ellipse(sx, sy, r * 1.3, r, 0, 0, Math.PI * 2); ctx.fill();
+  }
+}
+// the Shorts office's people: rounded body, jeans, typing hands, hair styles, blinking eyes, name tag with a status dot
+function personaje(a, t) {
+  const [sx, sy] = pantalla(a.x + 0.5, a.y + 0.5), y0 = sy + 6 + (quietos ? 0 : Math.sin((t + a.fase) / 700) * 0.6);
+  const rasgo = [...String(a.id || a.nombre)].reduce((s, c) => s + c.charCodeAt(0), 0), m = -1;
+  const peinado = rasgo % 5, vaquero = ['#2d3a55', '#3b3f47', '#2a2a30', '#4a3b2e'][rasgo % 4], zapato = ['#1b1b1f', '#f2f2f2', '#6b3e26'][rasgo % 3];
+  const r = (x, y, w, h, rr, c) => { ctx.fillStyle = c; ctx.beginPath(); ctx.roundRect(x, y, w, h, rr); ctx.fill(); };
+  ctx.fillStyle = 'rgba(0,0,0,.32)'; ctx.beginPath(); ctx.ellipse(sx, sy, 12, 5, 0, 0, Math.PI * 2); ctx.fill();
+  r(sx - 7, y0 - 14, 14, 6, 3, vaquero); r(sx - 7 + m * 3, y0 - 10, 5, 9, 2, vaquero); r(sx + 2 + m * 3, y0 - 10, 5, 9, 2, sombra(vaquero, 0.85));
+  r(sx - 8 + m * 4, y0 - 2, 7, 3, 1.5, zapato); r(sx + 1 + m * 4, y0 - 2, 7, 3, 1.5, zapato);
+  r(sx - 9, y0 - 30, 18, 18, 6, a.ropa);
+  ctx.fillStyle = sombra(a.ropa, 0.7); ctx.beginPath(); ctx.moveTo(sx - 4, y0 - 30); ctx.lineTo(sx, y0 - 26); ctx.lineTo(sx + 4, y0 - 30); ctx.fill();
+  const teclea = quietos ? 0 : (Math.sin((t + a.fase) / 90) > 0 ? 1 : 0);
+  r(sx - 12, y0 - 29, 4.5, 13, 2.2, sombra(a.ropa, 0.8)); r(sx + 7.5, y0 - 29, 4.5, 13, 2.2, sombra(a.ropa, 0.8));
+  ctx.fillStyle = a.piel; ctx.beginPath(); ctx.arc(sx - 9.8, y0 - 15 - teclea, 2.4, 0, Math.PI * 2); ctx.arc(sx + 9.8, y0 - 16 + teclea, 2.4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = sombra(a.piel, 0.88); ctx.fillRect(sx - 2.5, y0 - 33, 5, 4);
+  // seen from behind (they face their screen): head, ears and hair
+  ctx.fillStyle = a.piel; ctx.beginPath(); ctx.ellipse(sx, y0 - 40, 8, 8.5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(sx - 8, y0 - 39, 2, 0, Math.PI * 2); ctx.arc(sx + 8, y0 - 39, 2, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = a.pelo; ctx.beginPath(); ctx.ellipse(sx, y0 - 42, 8.6, 7.5, 0, Math.PI * 0.95, Math.PI * 2.05); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(sx, y0 - 39, 7.6, 6, 0, 0, Math.PI); ctx.fill();
+  if (peinado === 2) { ctx.fillRect(sx - 8.6, y0 - 45, 3.5, 12); ctx.fillRect(sx + 5.1, y0 - 45, 3.5, 12); ctx.fillRect(sx - 6, y0 - 38, 12, 6); }
+  if (peinado === 3) { ctx.beginPath(); ctx.arc(sx, y0 - 50, 3.6, 0, Math.PI * 2); ctx.fill(); }
+  if (peinado === 4) for (const [dx, dy] of [[-6, -46], [-2, -49], [3, -49], [7, -46]]) { ctx.beginPath(); ctx.arc(sx + dx, y0 + dy, 3, 0, Math.PI * 2); ctx.fill(); }
+  // name tag with a status dot (orange = working)
+  ctx.font = '600 11px Inter, sans-serif';
+  if (!a._w) a._w = ctx.measureText(a.nombre).width + 22;
+  ctx.fillStyle = 'rgba(14,13,18,.88)'; ctx.beginPath(); ctx.roundRect(sx - a._w / 2, y0 - 70, a._w, 17, 6); ctx.fill();
+  ctx.fillStyle = '#eee'; ctx.fillText(a.nombre, sx - a._w / 2 + 7, y0 - 57.5);
+  ctx.fillStyle = Math.floor((t + a.fase) / 600) % 4 ? '#ffb020' : '#3ecf6e'; ctx.beginPath(); ctx.arc(sx + a._w / 2 - 8, y0 - 61.5, 3.5, 0, Math.PI * 2); ctx.fill();
+  // now and then a thought bubble with what they are doing
+  const ciclo = (t + a.fase * 7) % 9000;
+  if (!quietos && ciclo < 2600) globo(sx, y0 - 74, '💭 ' + a.tarea);
+}
+function globo(x, y, texto) {
+  ctx.font = '600 10px Inter, sans-serif'; const w = ctx.measureText(texto).width + 14;
+  ctx.fillStyle = 'rgba(242,238,238,.95)'; ctx.beginPath(); ctx.roundRect(x - w / 2, y - 18, w, 16, 7); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x - 4, y - 2); ctx.lineTo(x + 4, y - 2); ctx.lineTo(x, y + 4); ctx.fill();
+  ctx.fillStyle = '#1a1015'; ctx.fillText(texto, x - w / 2 + 7, y - 6.5);
+}
 
-const PUESTOS = [[1.6, 2.2], [4.0, 2.2], [6.4, 2.2], [1.6, 4.6], [4.0, 4.6], [6.4, 4.6], [4.0, 6.6]];
-function dibujar() {
-  ctx.clearRect(0, 0, cv.width, cv.height);
-  suelo(); ticker(); pizarra();
-  [0.5, 3.6, 6.7].forEach((x, i) => pantalla(i, x));
-  // sign on the back wall
-  enPared(0.3, 100, 2.4, 10, (w, h) => { ctx.fillStyle = 'rgba(10,9,12,.85)'; ctx.fillRect(0, 0, w, h); texto('📡 LA MADRIGUERA TRADING', 4, h * 0.7, '700 6px "Space Grotesk", sans-serif', CLARO); });
-  // the last alert, next to the screens
-  enPared(3.0, 100, 4.2, 12, (w, h) => {
-    ctx.fillStyle = 'rgba(76,195,138,.12)'; ctx.fillRect(0, 0, w, h); ctx.strokeStyle = 'rgba(76,195,138,.35)'; ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
-    texto('🔔 ' + (mercado.alerta_ultima || 'Sin alertas hoy').slice(0, 70), 4, h * 0.68, '600 5px Inter, sans-serif', mercado.alerta_ultima ? CLARO : GRIS);
-  });
-  // desks and people, back to front
-  const activo = EQUIPO.length ? EQUIPO : [];
-  PUESTOS.forEach(([x, y], k) => { const m = activo[k]; if (!m) return; escritorio(x - 0.8, y - 1.0); });
-  PUESTOS.forEach(([x, y], k) => {
-    const m = activo[k]; if (!m) return;
-    const burbuja = m.rol === 'vigia' ? (mercado.sin_conexion ? 'Sin conexión con el exchange' : (mercado.ultimo || 'Leyendo precios…')) : null;
-    persona(x, y, m, burbuja);
-  });
-  // plants in the corners
-  [[9.4, 0.4], [9.4, 7.2]].forEach(([x, y]) => { caja(x, y, 0.5, 0.5, 14, '#5a4636'); const p = iso(x + 0.25, y + 0.25, 14); ctx.fillStyle = '#3f8f5a'; ctx.beginPath(); ctx.arc(p.x, p.y - 10, 13, 0, Math.PI * 2); ctx.fill(); });
+// ---------- drawing ----------
+let sueloCache = null, escala = 1;
+function medir() {
+  const ancho = (W + H) * TW / 2 + 40, alto = (W + H) * TH / 2 + MURO_ALTO + 110;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const css = Math.max(320, document.getElementById('escena').clientWidth * (document.getElementById('escena').classList.contains('cerca') ? (innerWidth < 700 ? 3.2 : 2.2) : 1));
+  escala = Math.min(1.3, css / ancho) * dpr;
+  lienzo.width = Math.round(ancho * escala); lienzo.height = Math.round(alto * escala);
+  origenX = H * TW / 2 + 20; origenY = MURO_ALTO + 70;
+  sueloCache = null;
 }
-function hud() {
-  const pares = mercado.pares || [];
-  const precios = mercado.sin_conexion ? 'Sin conexión con el exchange' : pares.filter(p => p.precio != null).map(p => `${p.nombre || p.par} ${p.texto}`).join(' · ') || 'Esperando datos…';
-  const cambio = (pares[0] || {}).cambio_dia;
-  document.getElementById('hud').innerHTML = `<div class="dep"><div><b>Sala de mercados</b><small>${escapar(precios)}</small><small>${escapar(mercado.alerta_ultima || 'Sin alertas hoy')}</small></div>
-    <div class="pts" style="color:${cambio == null ? 'inherit' : cambio >= 0 ? VERDE : ROJO}">${cambioPct(cambio)}<small>hoy</small></div></div>`
-    + pares.slice(1).map(p => `<div class="dep"><div><b>${escapar(p.nombre || p.par)}</b><small>${p.precio == null ? '—' : escapar(p.texto)}${p.hora ? ' · ' + escapar(p.hora) : ''}</small></div>
-    <div class="pts" style="color:${p.cambio_dia == null ? 'inherit' : p.cambio_dia >= 0 ? VERDE : ROJO}">${cambioPct(p.cambio_dia)}<small>hoy</small></div></div>`).join('');
+function pintarSueloCache() {
+  const c = document.createElement('canvas'); c.width = lienzo.width; c.height = lienzo.height;
+  const real = ctx; ctx = c.getContext('2d'); ctx.setTransform(escala, 0, 0, escala, 0, 0);
+  for (let x = 0; x < W; x++) for (let y = 0; y < H; y++) baldosa(x, y, (x + y) % 2 ? '#1f242c' : '#222831');
+  O.departamentos.forEach(d => {
+    const {x0, y0, x1, y1} = d.caja, base = mezcla(d.color, '#141820', 0.82);
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) baldosa(x, y, (x + y) % 2 ? base : mezcla(base, '#000000', 0.08));
+  });
+  for (const p of pinturas) pintarSuelo(p);
+  ctx = real; sueloCache = c;
 }
+function muros() {
+  for (let x = 0; x < W; x++) caja(x, -1, 1, 1, MURO_ALTO, MURO);
+  for (let y = -1; y < H; y++) caja(-1, y, 1, 1, MURO_ALTO, MURO);
+  // the big sign on the back wall
+  enPared(W / 2 - 13, 0, 66, 26, 46, (w, h) => {
+    ctx.fillStyle = '#0f141c'; ctx.beginPath(); ctx.roundRect(0, 0, w, h, 6); ctx.fill();
+    ctx.strokeStyle = 'rgba(76,195,138,' + (0.55 + Math.sin(tAnim / 800) * 0.25) + ')'; ctx.lineWidth = 2; ctx.strokeRect(4, 4, w - 8, h - 8);
+    ctx.font = '30px Anton, Impact, "Arial Black", sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#e6eaf1'; ctx.fillText('LA MADRIGUERA', w / 2 - 50, 33); ctx.fillStyle = '#4cc38a'; ctx.fillText('TRADING', w / 2 + 120, 33);
+    ctx.textAlign = 'left';
+  });
+  enPared(2, 0, 40, 9, 18, (w, h) => {   // a ticker strip with the lights count
+    ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, w, h); ctx.font = '700 10px Inter, sans-serif';
+    const l = O.luces || {}, txt = `● ${l.verde || 0} VERDE   ● ${l.amarillo || 0} AMARILLO   ● ${l.rojo || 0} ROJO   ·   SIMULACIÓN · SIN DINERO REAL   ·   `;
+    const off = (tAnim / 40) % (ctx.measureText(txt).width);
+    ctx.fillStyle = '#6ee0a6'; ctx.fillText(txt + txt + txt, 4 - off, 13);
+  });
+  enPared(W - 11, 0, 40, 9, 18, (w, h) => {
+    ctx.fillStyle = '#05070a'; ctx.fillRect(0, 0, w, h); ctx.font = '700 10px Inter, sans-serif'; ctx.fillStyle = '#f4a3b5';
+    ctx.fillText('BOTS: SIMULACIÓN · ' + (O.hora || ''), 6, 13);
+  });
+}
+let quietos = false;
+try { quietos = localStorage.getItem('oficina-quietos') === '1'; } catch (e) {}
+function dibujar(t) {
+  tAnim = t;
+  if (!sueloCache) pintarSueloCache();
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#09080a'; ctx.fillRect(0, 0, lienzo.width, lienzo.height);
+  ctx.drawImage(sueloCache, 0, 0);
+  ctx.setTransform(escala, 0, 0, escala, 0, 0);
+  muros();
+  const cosas = cosas0.slice();
+  for (const a of puestos) cosas.push({k: a.x + a.y + 1.2, f: () => personaje(a, t)});
+  cosas.sort((p, q) => p.k - q.k).forEach(c => c.f());
+}
+let ultimo = 0;
+function bucle(t) {
+  requestAnimationFrame(bucle);
+  if (t - ultimo < (quietos ? 1000 : 33)) return;
+  ultimo = t; dibujar(t);
+}
+document.getElementById('btn-quietos').textContent = quietos ? '🚶 Moverse' : '🧍 Quietos';
+document.getElementById('btn-quietos').onclick = e => {
+  quietos = !quietos; e.target.textContent = quietos ? '🚶 Moverse' : '🧍 Quietos';
+  try { localStorage.setItem('oficina-quietos', quietos ? '1' : '0'); } catch (err) {}
+};
+document.getElementById('btn-zoom').onclick = e => {
+  const c = document.getElementById('escena').classList.toggle('cerca');
+  e.target.textContent = c ? '🔍 Alejar' : '🔍 Acercar'; medir();
+};
+addEventListener('resize', medir);
+if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) quietos = true;
+construir(); medir();
+if (document.fonts) document.fonts.load('40px Anton').then(() => { sueloCache = null; }).catch(() => {});
+requestAnimationFrame(bucle);
+
+// ---------- live data: refresh the screens every minute ----------
 async function refrescar() {
   try {
-    const r = await (await fetch('/estado')).json();
-    mercado = {pares: r.pares, alerta_ultima: (r.alertas[0] || {}).texto || '', sin_conexion: r.sin_conexion, actualizado: r.actualizado, ultimo: r.ultimo};
-    hud();
+    const r = await fetch("{{ url_for('oficina_estado') }}", {cache: 'no-store'});
+    if (!r.ok) return;
+    O = await r.json(); document.getElementById('hora').textContent = O.hora || '';
+    pintarLuces(); construir(); sueloCache = null;
   } catch (e) {}
 }
-function animar() { tAnim++; if (tAnim % 2 === 0) dibujar(); requestAnimationFrame(animar); }
-hud(); animar();
 setInterval(refrescar, 60000);
 </script>
 {% endblock %}

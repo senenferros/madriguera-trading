@@ -13,7 +13,7 @@ Es un proyecto independiente, extraído del departamento de mercados que vivía 
 - **Diario de la sala**: notas, ideas y operaciones simuladas, con par, precio y cantidad. No se borra nada. El analista cuantitativo apunta ahí el veredicto de cada backtest.
 - **Histórico de velas** (Fase 1): años de velas de Kraken en `datos/historico/`, a partir de la API pública y de los CSV trimestrales que Kraken publica. Ver «Histórico de velas».
 - **Backtest** (Fase 1): seis estrategias long-only de corto plazo y tres diarias de medio plazo (también en índices, empresas, materias primas y cripto de Yahoo: S&P 500, IBEX, Nasdaq 100, Euro Stoxx 50, DAX, oro, plata, Brent, Tesla, Nvidia, Apple, Microsoft, Solana, XRP, BNB, Dogecoin y Cardano) probadas con walk-forward y juzgadas solo fuera de muestra, con las cinco reglas de riesgo, comisiones y deslizamiento. Página `Backtest` del panel o `python app.py backtest`. Ver «Backtest (Fase 1)».
-- **Panel web** en `http://127.0.0.1:5100`, solo accesible desde tu propio PC: la sala, la oficina (rótulo de cotizaciones, tres pantallas con los cierres de hoy, la pizarra con las reglas y las siete personas del equipo), la página de backtest y la página de comprobación.
+- **Panel web** en `http://127.0.0.1:5100`, solo accesible desde tu propio PC: la sala, la oficina (`/oficina`: vista isométrica al estilo de la oficina de Shorts, con el cartel LA MADRIGUERA TRADING, ocho departamentos con su nombre pintado en el suelo —Bolsa, Empresas, Materias primas, Criptomonedas, Análisis IA, Radar de noticias, Riesgo y Sala de bots (simulación)—, pantallas con los semáforos y precios de la caché de bolsa, el último análisis del día y el estado de los bots, y trabajadores animados en sus mesas; los datos salen de `sala/oficina.py` y de `/oficina/estado`), la página de backtest y la página de comprobación.
 
 ## Portada fácil
 
@@ -234,8 +234,10 @@ sala/telegram.py           envío de mensajes (sin botones ni escucha)
 sala/claude.py             Claude Code en modo headless, opcional (solo para el calendario)
 sala/equipo.py             las siete personas y las reglas de riesgo
 templates/                 base, facil, sala, oficina, backtest, comprobar
+sala/oficina.py            los datos de la oficina visual (departamentos, pantallas, trabajadores)
 tests/prueba.py            prueba sin red de la Fase 0: python tests\prueba.py
 tests/prueba_facil.py      prueba sin red de la portada fácil (Yahoo Finance falso, caché, colores, aviso, rutas, CLI): python tests\prueba_facil.py
+tests/prueba_oficina.py    prueba sin red de la oficina visual (departamentos, pantallas, simulación, rutas): python tests\prueba_oficina.py
 tests/prueba_radar.py      prueba sin red del radar (etiquetas, papeles, filtro de consejos, aprobación, cuentas del diario): python tests\prueba_radar.py
 tests/prueba_backtest.py   prueba sin red de la Fase 1 (histórico, motor, estrategias, veredicto, página, CLI): python tests\prueba_backtest.py
 datos/                     lo que genera la sala (no va al repositorio, salvo la semilla del calendario)
