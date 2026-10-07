@@ -317,8 +317,11 @@ def validar(respuesta, paq):
     general, q2 = limpiar_consejos(general)
     if q1 or q2:
         correcciones.append(f"global: {q1 + q2} frase(s) de consejo quitadas")
-    aviso, _ = limpiar_consejos(str(respuesta.get("aviso") or ""))
-    if not aviso or numeros_inventados(aviso, globales):
+    # The disclaimer naturally says "esto no es un consejo de compra o venta": if the filter touches it, use the fixed one
+    aviso, q3 = limpiar_consejos(str(respuesta.get("aviso") or ""))
+    if q3:
+        correcciones.append(f"aviso: {q3} frase(s) quitadas, se usa el aviso fijo")
+    if q3 or not aviso or numeros_inventados(aviso, globales):
         aviso = AVISO
     return titular, general, aviso, mercados, correcciones
 

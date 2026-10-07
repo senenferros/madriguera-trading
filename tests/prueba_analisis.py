@@ -163,6 +163,9 @@ vacia = analista.validar({}, paq)
 ok(len(vacia[3]) == 8 and all(i["corregido"] for i in vacia[3].values()) and vacia[2] == analista.AVISO, "respuesta vacía -> solo datos")
 ok(len(analista.validar({"titular": "Sube 99 %", "resumen_general": "x", "mercados": []}, paq)[4]) > 8, "titular con número inventado corregido")
 
+_r = respuesta_buena(); _r["aviso"] = "Esto no es un consejo de compra o venta. Es simulación."
+_v = analista.validar(_r, paq)
+ok(_v[2] == analista.AVISO and "[Frase quitada" not in _v[2] and any(c.startswith("aviso:") for c in _v[4]), "aviso tocado por el filtro: se usa el aviso fijo, sin marcador, y queda en correcciones")
 print("Hora automática")
 hoy_archivo = nucleo.DATOS_DIR / "analisis" / f"{date.today().isoformat()}.json"
 ok(not analista.toca(), "ya hecho hoy -> no toca")
