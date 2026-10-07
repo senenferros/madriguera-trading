@@ -14,7 +14,7 @@ import re
 import statistics
 import time
 from bisect import bisect_left
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import nucleo
 from sala import estrategias, mercado
@@ -123,6 +123,17 @@ def costes_par(cfg, par):
     return {**cfg, **{k: propio[k] for k in _CLAVES_COSTE if k in propio}}
 
 
+def es_cripto(par):
+    """True for crypto: a Kraken pair, or a Yahoo crypto market (symbol like SOL-EUR). Crypto trades every day,
+    so a long hole there is a data fault and keeps its INSUFICIENTE."""
+    import re
+    from sala import yahoo
+    for m in yahoo.mercados():
+        if m["par"] == par:
+            return bool(re.fullmatch(r"[A-Z0-9]+-(EUR|USD|USDT)", m["simbolo"]))
+    return True
+
+
 def ventanas_cfg(cfg, marco):
     """(is_dias, oos_dias, oos_min_dias) for this timeframe: the daily set for marco >= 1440, the normal one otherwise."""
     if int(marco) >= 1440:
@@ -153,7 +164,7 @@ def _fecha_corta(t):
 
 
 def _fecha_utc(t):
-    return datetime.fromtimestamp(t, timezone.utc).date().isoformat()
+    return (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=t)).date().isoformat()
 
 
 def _epoch_fecha(texto):
@@ -997,6 +1008,23 @@ def correr(estrategia, par, desde=None, hasta=None, avisar=print, cfg=None, ahor
     utiles = [v for v in velas if desde_t <= v[0] < hasta_t]
     lista_v = ventanas(desde_t, hasta_t, *ventanas_cfg(cfg, marco))
     huecos_largos = historico.huecos(utiles, marco, cfg["hueco_max_dias"] * 86400) if utiles else []
+    if huecos_largos and marco >= 1440 and not es_cripto(par):
+        # Daily stock/commodity data from Yahoo has the odd multi-week hole (Brent 2009). Bridging it would invent
+        # prices (stops and entries across the hole), so the run starts after the last long hole instead, plus the
+        # strategy's warm-up so no indicator straddles it; if too little remains, the usual INSUFICIENTE applies.
+        ultimo = max(h["hasta"] for h in huecos_largos)
+        nuevo = ultimo + (est.calentamiento + 10) * marco * 60
+        if nuevo < hasta_t:
+            aviso = (f"Hueco de {round(max(h['minutos'] for h in huecos_largos) / 1440)} días en los datos de {nombre} "
+                     f"(hasta el {_fecha_corta(ultimo)}): el backtest empieza después, el {_fecha_corta(nuevo)}")
+            recortes.append(aviso)
+            avisar(aviso)
+            desde_t = nuevo
+            desde_txt = _fecha_utc(desde_t)
+            velas = historico.cargar(par, desde_t - (est.calentamiento + 10) * marco * 60, hasta_t, marco)
+            utiles = [v for v in velas if desde_t <= v[0] < hasta_t]
+            lista_v = ventanas(desde_t, hasta_t, *ventanas_cfg(cfg, marco))
+            huecos_largos = historico.huecos(utiles, marco, cfg["hueco_max_dias"] * 86400) if utiles else []
     avisar(f"{len(utiles)} velas de {marco} min entre {desde_txt} y {hasta_txt}; {len(lista_v)} ventanas fuera de muestra")
 
     motivo = ""

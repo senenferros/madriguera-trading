@@ -18,7 +18,7 @@ import re
 import statistics
 import threading
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 import requests
@@ -139,7 +139,11 @@ def velas_dia(par, dia=None):
 
 
 def dia_local(ts):
-    return datetime.fromtimestamp(ts).date().isoformat()
+    # Windows refuses fromtimestamp for negative timestamps (pre-1970 history): fall back to UTC there
+    try:
+        return datetime.fromtimestamp(ts).date().isoformat()
+    except (OSError, OverflowError, ValueError):
+        return (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=ts)).date().isoformat()
 
 
 def guardar_velas(par, nuevas):

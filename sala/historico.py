@@ -19,7 +19,7 @@ import os
 import re
 import time
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -92,11 +92,11 @@ def _ruta_estado():
 
 
 def mes_de(t):
-    return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m")
+    return (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=t)).strftime("%Y-%m")
 
 
 def fecha_utc(t):
-    return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%d")
+    return (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=t)).strftime("%Y-%m-%d")
 
 
 def _t_mes(mes):

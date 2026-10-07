@@ -156,11 +156,11 @@ Los intentos se cuentan **por familia y mercado**: `donchian_dia` en el S&P 500 
 
 **Ventanas en diario: 2 años dentro de muestra / 6 meses fuera** (avanzando 6 meses; la última fuera de muestra vale si tiene al menos 90 días). Con 180/60 días, una estrategia diaria hace de 0 a 3 operaciones por ventana dentro de muestra: no hay con qué elegir parámetros y casi todas las ventanas caerían en «por defecto». Con 2 años hay de 4 a 20 operaciones por combinación (el mínimo para elegir es 4 en `donchian_dia`, 3 en `rebote_minimo`, 1 en `cruce_medias_dia`), y con 6 meses fuera la consistencia (puerta 6) se mide en tramos con alguna operación. Para 4 ventanas hacen falta 4 años de datos. Las siete puertas no cambian: más de 100 operaciones fuera de muestra (en diario eso pide muchos años: el S&P 500 y el IBEX los tienen, Tesla y Brent quizá no), y la puerta 7 permite como mucho un apagado del −12 % por cada 3 años fuera de muestra, con el drawdown < 20 %. Se cambian en `config.yaml → backtest.ventana_is_dias_diario`, `ventana_oos_dias_diario` y `oos_min_dias_diario`; cambiar la ventana después de ver un resultado es otro intento.
 
-**Qué ejecutar en tu PC** (copia esto en un `backtest_bolsa.bat` dentro de la carpeta del proyecto y haz doble clic; tarda de 30 minutos a 2 horas y deja todo en `datos\backtest_bolsa.log`):
+**Qué ejecutar en tu PC**: haz doble clic en `backtest_bolsa.bat` (viene en la carpeta del proyecto; esto es lo que hace; tarda de 30 minutos a 2 horas y deja todo en `datos\backtest_bolsa.log`):
 
 ```
 @echo off
-cd /d %~dp0
+cd /d "%~dp0"
 .venv\Scripts\python.exe app.py historico yahoo
 .venv\Scripts\python.exe app.py historico
 for %%E in (donchian_dia cruce_medias_dia rebote_minimo) do (
@@ -171,6 +171,8 @@ for %%E in (donchian_dia cruce_medias_dia rebote_minimo) do (
 )
 pause
 ```
+
+**Huecos en los datos diarios.** Si un mercado de bolsa o materias primas tiene un hueco de más de 7 días en Yahoo (el Brent tiene uno de 16 días en abril de 2009), el backtest no rellena el hueco con precios inventados: empieza después del último hueco largo (más el calentamiento de la estrategia) y lo dice en los avisos. En cripto, que cotiza todos los días, un hueco largo es un fallo de datos y sigue dando INSUFICIENTE.
 
 Son 57 backtests (3 estrategias × 19 mercados): 57 intentos más. Con 57 pruebas sin ninguna ventaja real, lo esperable es que **alguna pase por puro azar**; un PASA aislado en un solo mercado no vale nada. Créetelo solo si la misma estrategia pasa en varios mercados parecidos (varios índices, o oro y plata) y sobrevive al doble de deslizamiento.
 

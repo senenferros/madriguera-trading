@@ -1646,6 +1646,25 @@ def prueba_bolsa_diaria():
     ok(backtest.intentos_previos("donchian", "XBTEUR") == backtest.intentos_previos("donchian", "XBTEUR") and backtest.intentos_previos("donchian", "IBEX35") == 0,
        "intentos: por familia y mercado")
 
+    # --- a 16-day hole in daily stock data: the run starts after it instead of INSUFICIENTE (Brent 2009)
+    limpiar_historico()
+    larga = serie_diaria(9, semilla=5)
+    corte = 300
+    con_hueco = larga[:corte] + [v for v in larga[corte:] if v[0] >= larga[corte][0] + 16 * 86400]
+    sembrar("BRENTUSD", 1440, con_hueco)
+    rb = correr("donchian_dia", "BRENTUSD", cfg=CFG, semillas=5)
+    ok(rb["oos"]["veredicto"]["clave"] != "insuficiente" and rb["desde_t"] > larga[corte][0] + 16 * 86400
+       and any("Hueco de" in r for r in rb["datos"]["recortes"]),
+       f"hueco de 16 días en bolsa: empieza después y lo dice ({rb['oos']['veredicto']['clave']}, desde {rb['desde']})")
+    ok(backtest.es_cripto("SOLEURY") and backtest.es_cripto("XBTEUR") and not backtest.es_cripto("BRENTUSD"), "es_cripto: Yahoo cripto y Kraken sí, Brent no")
+    sembrar("SOLEURY", 1440, con_hueco)
+    rs = correr("donchian_dia", "SOLEURY", cfg=CFG, semillas=5)
+    ok(rs["oos"]["veredicto"]["clave"] == "insuficiente", "hueco largo en cripto: sigue INSUFICIENTE")
+
+    # --- pre-1970 timestamps (Windows refuses fromtimestamp for negatives): the helpers do plain arithmetic
+    ok(historico.mes_de(-86400) == "1969-12" and historico.fecha_utc(-86400) == "1969-12-31" and yahoo._fecha(-86400) == "1969-12-31"
+       and estrategias.dia_de(-86400, "utc") == "1969-12-31", "fechas antes de 1970 sin fromtimestamp")
+
 
 # =====================================================================================================================
 

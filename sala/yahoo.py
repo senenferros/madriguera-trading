@@ -9,7 +9,7 @@ Nada de esto se ha podido ejecutar contra Yahoo desde el contenedor de desarroll
 `descargar_fn` y el dueño lo ejecuta en su PC. Solo lectura de precios públicos; nada mueve dinero.
 """
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 import requests
@@ -169,4 +169,4 @@ def actualizar(pares_sel=None, avisar=print, cfg=None):
 
 
 def _fecha(t):
-    return datetime.fromtimestamp(t, timezone.utc).date().isoformat()
+    return (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=t)).date().isoformat()

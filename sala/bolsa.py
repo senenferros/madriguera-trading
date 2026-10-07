@@ -13,7 +13,7 @@ import re
 import statistics
 import threading
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote
 
 import requests
@@ -161,7 +161,7 @@ def yahoo_a_csv(datos):
     filas = ["Date,Open,High,Low,Close,Volume"]
     for t, c in zip(ts, cierres):
         if c is not None:
-            d = datetime.fromtimestamp(int(t), timezone.utc).strftime("%Y-%m-%d")
+            d = (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=int(t))).strftime("%Y-%m-%d")
             filas.append(f"{d},{c},{c},{c},{c},0")
     return "\n".join(filas)
 
@@ -211,7 +211,7 @@ def cierres_cripto(par, ahora=None):
         velas = historico.cargar(par, ahora - FILAS_MAX * 86400, ahora, marco=1440)
     except Exception:
         return []
-    return [[datetime.fromtimestamp(v[0], timezone.utc).date().isoformat(), float(v[4])] for v in velas if v[4] > 0]
+    return [[(datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=v[0])).date().isoformat(), float(v[4])] for v in velas if v[4] > 0]
 
 
 # ---------- the traffic light (pure) ----------

@@ -10,7 +10,7 @@ Simulación · datos públicos · sin dinero real.
 import itertools
 import statistics
 from bisect import bisect_left, bisect_right, insort
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sala import mercado
 
@@ -20,7 +20,7 @@ from sala import mercado
 def dia_de(t, modo="local"):
     """'AAAA-MM-DD' of the bar's open: UTC day, or the local day the watcher uses (mercado.dia_local)."""
     if modo == "utc":
-        return datetime.fromtimestamp(t, timezone.utc).date().isoformat()
+        return (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=t)).date().isoformat()
     return mercado.dia_local(t)
 
 
@@ -28,7 +28,10 @@ def hora_de(t, modo="local"):
     """Hour 0-23 of the bar's open in the chosen mode."""
     if modo == "utc":
         return (int(t) % 86400) // 3600
-    return datetime.fromtimestamp(t).hour
+    try:
+        return datetime.fromtimestamp(t).hour
+    except (OSError, OverflowError, ValueError):  # negative timestamps on Windows
+        return (int(t) % 86400) // 3600
 
 
 # ---------- indicators: pure, causal, None while there is not enough data ----------
