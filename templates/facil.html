@@ -42,6 +42,15 @@
   .leyenda li { display: flex; gap: 12px; align-items: flex-start; margin: 10px 0; font-size: 16px; list-style: none; }
   .leyenda ul { padding: 0; margin: 0; }
   .leyenda .luz { width: 22px; height: 22px; border-width: 2px; margin-top: 2px; }
+  .chapa { display: inline-block; padding: 2px 10px; border-radius: 10px; font-weight: 700; font-size: 13px; letter-spacing: .02em; }
+  .chapa.NUEVA { background: rgba(62,207,127,.25); } .chapa.ACTUALIZACIÓN { background: rgba(90,160,255,.25); }
+  .chapa.DUPLICADA { background: rgba(140,140,150,.3); } .chapa.RECICLADA { background: rgba(255,90,106,.25); }
+  .chapa.RECHAZAR { background: rgba(255,90,106,.25); } .chapa.VIGILAR { background: rgba(242,196,109,.25); } .chapa.ENSENAR { background: rgba(62,207,127,.25); }
+  .radar ul { list-style: none; padding: 0; margin: 8px 0; }
+  .radar li { padding: 8px 0; border-bottom: 1px solid var(--borde); font-size: 16px; }
+  .radar .roles { margin: 6px 0 0 0; font-size: 15px; color: var(--suave); }
+  .radar .roles b { color: var(--texto); }
+  .saldo { font-size: 28px; font-weight: 700; margin: 4px 0; }
   @media (max-width: 700px) {
     .banner h1 { font-size: 23px; } .banner p { font-size: 16px; }
     .rejilla { grid-template-columns: 1fr; }
@@ -50,6 +59,7 @@
 </style>
 {% endblock %}
 {% block contenido %}
+<p style="margin:0 0 12px;font-size:15px"><a href="{{ url_for('oficina') }}">🏢 Ver la oficina de La Madriguera Trading (simulación)</a></p>
 <section class="banner {{ 'si' if banner.hay else 'no' }}">
   <h1>{{ banner.titulo }}</h1>
   <p>{{ banner.texto }}</p>
@@ -73,6 +83,71 @@
     <span class="estado" id="estado-analisis">{% if trabajo_analisis and trabajo_analisis.estado == 'corriendo' %}Analizando…{% elif trabajo_analisis and trabajo_analisis.estado == 'error' %}{{ trabajo_analisis.log[-1] }}{% endif %}</span>
   </form>
   {% endif %}
+</section>
+
+<section class="analisis radar" id="radar">
+  <h2>Radar de noticias</h2>
+  <p class="pie">Una vez al día una IA busca noticias de nuestros mercados. Un detector (sin IA) marca si es nueva o vieja, y cinco «papeles» (scout, escéptico, cuant, riesgo y revisor final) discuten cada idea. Es un ejercicio para aprender: nunca dice qué comprar o vender.</p>
+  {% if radar %}
+    <p class="pie">Hecho el {{ radar.fecha }} a las {{ radar.hora }}{% if radar.fecha != hoy %} · <strong>no es de hoy</strong>{% endif %}.</p>
+    <ul>
+    {% for n in radar.noticias %}
+      <li data-noticia="{{ n.id }}"><span class="chapa {{ 'RECICLADA' if n.etiqueta == 'POSIBLEMENTE RECICLADA' else n.etiqueta }}">{{ n.etiqueta }}</span>
+        <strong>{{ n.titulo }}</strong> <span class="pie">({{ n.fecha }}{% if n.mercados %} · {{ n.mercados | join(', ') }}{% endif %})</span><br>
+        {{ n.resumen }} <a href="{{ n.url }}" rel="noopener noreferrer" target="_blank">fuente</a>
+        <br><span class="pie">{{ n.motivo }}</span></li>
+    {% else %}
+      <li>Hoy no ha encontrado noticias fechadas y fiables.</li>
+    {% endfor %}
+    </ul>
+    {% if radar.ideas %}<h3>Lo que opinan los cinco papeles</h3>
+    <ul>
+    {% for i in radar.ideas %}
+      <li data-idea="{{ i.id }}"><span class="chapa {{ 'ENSENAR' if i.veredicto == 'ENSEÑAR AL HUMANO' else i.veredicto }}">{{ i.veredicto }}</span>
+        <strong>{{ i.mercado }}</strong> · idea de que {{ i.escenario }} en {{ i.dias }} sesiones · {{ i.titulo }}
+        <div class="roles">{% for r in roles %}<div><b>{{ nombres_roles[r] }}:</b> {{ i.roles[r] }}</div>{% endfor %}</div>
+        {% if i.corregido %}<p class="corregido">{{ i.corregido }}</p>{% endif %}</li>
+    {% endfor %}
+    </ul>{% endif %}
+  {% elif not claude_ok %}
+    <p>Todavía no hay radar, y no se puede hacer: falta Claude Code (el programa «claude») en este ordenador.</p>
+  {% else %}
+    <p>Todavía no hay radar. Pulsa el botón y en unos minutos lo tendrás.</p>
+  {% endif %}
+  {% if not radar or radar.fecha != hoy %}
+  <form method="post" action="{{ url_for('encargar_radar') }}" id="form-radar">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <button type="submit" id="boton-radar" {{ 'disabled' if trabajo_radar and trabajo_radar.estado == 'corriendo' }}>Pasar el radar de hoy</button>
+    <span class="estado" id="estado-radar">{% if trabajo_radar and trabajo_radar.estado == 'corriendo' %}Buscando noticias…{% elif trabajo_radar and trabajo_radar.estado == 'error' %}{{ trabajo_radar.log[-1] }}{% endif %}</span>
+  </form>
+  {% endif %}
+</section>
+
+<section class="analisis radar" id="diario">
+  <h2>Diario de mentira</h2>
+  <p class="pie">Una cuenta ficticia de {{ '%.0f' % saldo.inicial }} $ para ver qué habría pasado. Nada es real: no hay dinero ni órdenes.</p>
+  <p class="saldo">{{ '%.2f' % saldo.total }} $</p>
+  <p class="pie">Cerrado: {{ '%.2f' % saldo.cerrado }} $ · en juego: {{ '%.0f' % saldo.en_juego }} $ ({{ '%+.2f' % saldo.latente }} $ sin cerrar) · {{ saldo.cerradas }} cerradas, {{ saldo.aciertos }} salieron bien.</p>
+  {% set pendientes = diario.propuestas | selectattr("estado", "equalto", "pendiente") | list %}
+  {% if pendientes %}<h3>Propuestas esperando tu decisión</h3>
+  <ul>
+  {% for p in pendientes %}
+    <li data-propuesta="{{ p.id }}"><strong>{{ p.nombre }}</strong>: idea de que {{ p.escenario }} en {{ p.dias }} sesiones · {{ p.titulo }}<br>
+      <span class="pie">{{ p.revisor }}</span>
+      <form method="post" action="{{ url_for('radar_aprobar') }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}"><input type="hidden" name="id" value="{{ p.id }}">
+        <button type="submit">Aprobar (simulación)</button> <span class="pie">Si no la apruebas, caduca sola en 3 días.</span>
+      </form></li>
+  {% endfor %}
+  </ul>{% endif %}
+  {% if diario.operaciones %}<h3>Ideas apuntadas</h3>
+  <ul>
+  {% for o in diario.operaciones | reverse %}
+    <li data-operacion="{{ o.id }}"><strong>{{ o.nombre }}</strong> ({{ o.escenario }}, {{ o.dias }} sesiones) · {{ o.estado }} ·
+      {{ '%+.2f' % o.resultado }} $ (de {{ o.precio_entrada }} el {{ o.fecha_entrada }} a {{ o.precio_actual }} el {{ o.fecha_actual }})
+      {% if o.leccion %}<br><span class="etq">Lección:</span> {{ o.leccion }}{% endif %}</li>
+  {% endfor %}
+  </ul>{% endif %}
 </section>
 
 <div class="barra">
@@ -165,6 +240,23 @@
       .catch(() => { document.getElementById('boton-analisis').disabled = false; est.textContent = 'No se ha podido pedir el análisis.'; });
   });
   {% if trabajo_analisis and trabajo_analisis.estado == 'corriendo' %}setTimeout(vigilarAnalisis, 3000);{% endif %}
+  const fr = document.getElementById('form-radar');
+  function vigilarRadar() {
+    fetch('{{ url_for("radar_estado") }}').then(r => r.json()).then(d => {
+      const t = d.trabajo;
+      if (t && t.estado === 'corriendo') { setTimeout(vigilarRadar, 3000); return; }
+      location.reload();
+    }).catch(() => setTimeout(vigilarRadar, 5000));
+  }
+  if (fr) fr.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    document.getElementById('boton-radar').disabled = true;
+    const est = document.getElementById('estado-radar'); est.textContent = 'Buscando noticias… (unos minutos)';
+    const datos = new FormData(fr); datos.append('ajax', '1');
+    fetch(fr.action, {method: 'POST', body: datos}).then(() => setTimeout(vigilarRadar, 2000))
+      .catch(() => { document.getElementById('boton-radar').disabled = false; est.textContent = 'No se ha podido pedir el radar.'; });
+  });
+  {% if trabajo_radar and trabajo_radar.estado == 'corriendo' %}setTimeout(vigilarRadar, 3000);{% endif %}
 })();
 </script>
 {% endblock %}

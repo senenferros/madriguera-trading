@@ -41,6 +41,26 @@ Con `noticias: true` puede añadir una noticia por mercado, siempre con su fecha
 `datos/analisis/`, con lo que ha costado. Se puede apagar en el modo experto (interruptor «Análisis de cada día»).
 No es un consejo de inversión.
 
+## Radar de noticias y diario de mentira
+
+Basado en la guía «AI-Trading Web-Crawler» de @seb.ai, recortada para quien no sabe nada de trading. Cada día a las
+08:30 (`config.yaml`, sección `radar: {activo, hora}`; interruptor «Radar de noticias» en el modo experto) una sola
+llamada a Claude Code con búsqueda web reúne noticias de los mercados de la sala (`mercados_extra` más BTC y ETH): título,
+fuente, fecha, mercados afectados y un resumen de una frase. También con «Pasar el radar de hoy» o `python app.py radar`.
+
+- **Detector de noticias viejas** (sin IA): cada noticia se compara con las de los últimos 14 días de `datos/radar/`
+  (título normalizado, parecido y URL) y con su fecha. Chapas: **NUEVA**, **ACTUALIZACIÓN** (misma historia con algo
+  nuevo), **DUPLICADA** y **POSIBLEMENTE RECICLADA** (más de 3 días o sin fecha). Una duplicada o reciclada siempre se rechaza.
+- **Cinco papeles** en la misma llamada: scout, escéptico, cuant, riesgo y revisor final, una línea cada uno en español
+  llano. Veredicto: RECHAZAR, VIGILAR o ENSEÑAR AL HUMANO. Las frases que suenan a «compra» o «vende» se borran con el
+  mismo filtro que el análisis.
+- **Diario de mentira**: una cuenta ficticia de 1.000 $ (`datos/radar/diario.json`). Una idea ENSEÑAR AL HUMANO queda como
+  propuesta y solo entra si pulsas «Aprobar (simulación)» (caduca en 3 días). Cada idea usa 100 $ de mentira desde el
+  último cierre guardado y se sigue con los cierres diarios de la sala durante las sesiones que dijo; al cerrarse, el
+  siguiente radar escribe una lección de una línea (autoevaluación).
+
+Nada de esto compra ni vende, ni es un consejo de inversión.
+
 ## Las fases
 
 | Fase | Qué | Dinero |
@@ -200,7 +220,7 @@ Con el panel abierto, `app.py historico` puede correr (solo escribe en `datos/hi
 ## Estructura
 
 ```
-app.py                     CLI: panel, vigilar, comprobar, historico, backtest, bolsa
+app.py                     CLI: panel, vigilar, comprobar, historico, backtest, bolsa, analisis, radar
 nucleo.py                  carpetas, config.yaml, .env, informe de comprobación
 panel.py                   Flask: páginas, JSON de estado, diario, calendario, interruptores, bucle del vigía, trabajos de backtest e histórico
 sala/mercado.py            velas, alertas, parte, calendario, diario
@@ -208,6 +228,7 @@ sala/historico.py          histórico de Kraken: OHLC + Trades + CSV, lector de 
 sala/estrategias.py        indicadores puros, contrato Estrategia, las seis estrategias
 sala/backtest.py           motor con las cinco reglas, métricas, walk-forward, referencias, azar, puertas, veredicto
 sala/bolsa.py              portada fácil: precios diarios de Yahoo Finance, semáforos, aviso honesto
+sala/radar.py              radar de noticias: una llamada a Claude, detector de noticias viejas, cinco papeles, diario de mentira
 sala/yahoo.py              histórico diario largo (OHLCV) de Yahoo Finance para el backtest de bolsa
 sala/telegram.py           envío de mensajes (sin botones ni escucha)
 sala/claude.py             Claude Code en modo headless, opcional (solo para el calendario)
@@ -215,6 +236,7 @@ sala/equipo.py             las siete personas y las reglas de riesgo
 templates/                 base, facil, sala, oficina, backtest, comprobar
 tests/prueba.py            prueba sin red de la Fase 0: python tests\prueba.py
 tests/prueba_facil.py      prueba sin red de la portada fácil (Yahoo Finance falso, caché, colores, aviso, rutas, CLI): python tests\prueba_facil.py
+tests/prueba_radar.py      prueba sin red del radar (etiquetas, papeles, filtro de consejos, aprobación, cuentas del diario): python tests\prueba_radar.py
 tests/prueba_backtest.py   prueba sin red de la Fase 1 (histórico, motor, estrategias, veredicto, página, CLI): python tests\prueba_backtest.py
 datos/                     lo que genera la sala (no va al repositorio, salvo la semilla del calendario)
 datos/historico/           <par>/<N>m/<AAAA-MM>.json, estado.json, cursor_trades.json, ocupado.json

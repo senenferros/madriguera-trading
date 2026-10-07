@@ -109,6 +109,11 @@ def crear_panel(vigia=True, bot=None):
                     if analista.toca(cfg=cfg) and analista.claude_disponible():
                         intento_analisis["dia"] = date.today().isoformat()   # one automatic try a day, even if it fails
                         app.lanzar_analisis()
+                if nucleo.automatico(cfg, "radar") and hasattr(app, "lanzar_radar") and intento_radar.get("dia") != date.today().isoformat():
+                    from sala import analista, radar
+                    if radar.toca(cfg=cfg) and analista.claude_disponible():
+                        intento_radar["dia"] = date.today().isoformat()   # one automatic try a day, even if it fails
+                        app.lanzar_radar()
                 if nucleo.automatico(cfg, "parte") and mercado.toca_parte(cfg=cfg):
                     if bot.texto(mercado.parte(cfg)):
                         mercado.anotar_parte_enviado()
@@ -117,6 +122,7 @@ def crear_panel(vigia=True, bot=None):
             time.sleep(60)
 
     intento_analisis = {}
+    intento_radar = {}
 
     if vigia:
         threading.Thread(target=vigilar_bucle, daemon=True).start()
@@ -253,12 +259,60 @@ def crear_panel(vigia=True, bot=None):
 
     app.lanzar_analisis = lanzar_analisis   # the tests swap it for a fake
 
+    def lanzar_radar():
+        """The daily news radar (one Claude call with web search) in the background; False when one is already running."""
+        trabajo = {"estado": "corriendo", "log": []}
+        if not _reservar("radar", trabajo):
+            return False
+
+        def correr():
+            avisar = _registrar(trabajo, "Radar")
+            try:
+                from sala import radar
+                radar.hacer(avisar=avisar)
+                trabajo["estado"] = "ok"
+            except Exception as e:
+                trabajo["log"].append(f"{time.strftime('%H:%M:%S')}  Error: {e}")
+                trabajo["estado"] = "error"
+
+        threading.Thread(target=correr, daemon=True).start()
+        return True
+
+    app.lanzar_radar = lanzar_radar   # the tests swap it for a fake
+
     @app.route("/")
     def facil():
-        from sala import analista, bolsa
+        from sala import analista, bolsa, radar
+        try:
+            diario = radar.actualizar_diario()
+        except Exception:   # the diary is a bonus: the page must open anyway
+            diario = radar.cargar_diario()
         return render_template("facil.html", tarjetas=bolsa.tarjetas(), banner=bolsa.banner(), umbrales=bolsa.UMBRALES_TEXTO,
                                trabajo=trabajos.get("bolsa"), analisis=analista.ultimo(), claude_ok=analista.claude_disponible(),
-                               trabajo_analisis=trabajos.get("analisis"), hoy=date.today().isoformat())
+                               trabajo_analisis=trabajos.get("analisis"), hoy=date.today().isoformat(),
+                               radar=radar.ultimo(), trabajo_radar=trabajos.get("radar"), diario=diario,
+                               saldo=radar.saldo(diario), nombres_roles=radar.NOMBRES_ROLES, roles=radar.ROLES)
+
+    @app.post("/radar")
+    def encargar_radar():
+        lanzado = app.lanzar_radar() is not False
+        if request.form.get("ajax"):
+            return {"ok": lanzado, "trabajo": trabajos.get("radar")}, (200 if lanzado else 409)
+        flash("Pasando el radar de noticias; tarda unos minutos." if lanzado else "El radar ya está en marcha.", "ok" if lanzado else "error")
+        return redirect(url_for("facil"))
+
+    @app.get("/radar/estado")
+    def radar_estado():
+        return {"trabajo": trabajos.get("radar"), "hora": time.strftime("%H:%M:%S")}
+
+    @app.post("/radar/aprobar")
+    def radar_aprobar():
+        from sala import radar
+        hecho, mensaje = radar.aprobar(request.form.get("id", ""))
+        if request.form.get("ajax"):
+            return {"ok": hecho, "mensaje": mensaje}, (200 if hecho else 409)
+        flash(mensaje, "ok" if hecho else "error")
+        return redirect(url_for("facil") + "#diario")
 
     @app.post("/analisis")
     def encargar_analisis():
@@ -289,10 +343,20 @@ def crear_panel(vigia=True, bot=None):
         return render_template("sala.html", r=mercado.resumen(), automatico=_automaticos(), trabajo=trabajos.get("vigia"),
                                calendario_job=trabajos.get("calendario"), telegram=bot.activo, reglas=equipo_mod.REGLAS_RIESGO)
 
+    def _oficina_estado():
+        from sala import analista, bolsa, oficina as oficina_mod
+        return oficina_mod.estado(tarjetas=bolsa.tarjetas(), analisis=analista.ultimo(), automatico=_automaticos(),
+                                  banner=bolsa.banner(), equipo=equipo_mod.equipo(), reglas=equipo_mod.REGLAS_RIESGO,
+                                  trabajos=trabajos, hora=time.strftime("%H:%M:%S"))
+
     @app.route("/oficina")
     def oficina():
-        return render_template("oficina.html", r=mercado.resumen_corto(), equipo=equipo_mod.equipo(),
-                               reglas=equipo_mod.REGLAS_RIESGO, automatico=_automaticos())
+        return render_template("oficina.html", o=_oficina_estado(), equipo=equipo_mod.equipo())
+
+    @app.get("/oficina/estado")
+    def oficina_estado():
+        """The office screens' data (polled every minute by the page)."""
+        return _oficina_estado()
 
     @app.get("/estado")
     def estado():

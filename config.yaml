@@ -15,10 +15,15 @@ automatico:
   alertas: true
   parte: true
   analisis: true
+  radar: true
 # Análisis de cada día con IA (python app.py analisis). noticias: busca 1 noticia fechada por mercado
 analisis:
   noticias: true
   hora: '08:00'
+# Radar de noticias con IA (python app.py radar): noticias, detector de noticias viejas y diario de mentira
+radar:
+  activo: true
+  hora: '08:30'
 # Histórico de Kraken: python app.py historico
 historico:
   intervalos:
