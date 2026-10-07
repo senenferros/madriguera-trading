@@ -10,8 +10,9 @@
   .cartel h1 em { color: var(--acento); font-style: normal; }
   .cartel .sim { display: inline-block; margin-top: 8px; }
   .escena-caja { background: #09080a; border-radius: 18px; overflow: auto; position: relative; border: 1px solid var(--borde); box-shadow: var(--sombra); -webkit-overflow-scrolling: touch; }
-  .escena-caja canvas { display: block; width: 100%; height: auto; touch-action: pan-x pan-y; }
-  .escena-caja.cerca canvas { width: 220%; }
+  .escena-caja canvas { display: block; width: 100%; height: auto; touch-action: pan-x pan-y; cursor: grab; }
+  .escena-caja.cerca { max-height: 80vh; }
+  .escena-caja.arrastrando canvas { cursor: grabbing; }
   .barra-of { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin: 0 0 10px; color: var(--suave); font-size: 13px; }
   .barra-of button { font-size: 13px; padding: 6px 12px; }
   .luces { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -30,7 +31,6 @@
   .papel .pie { font-size: 14px; color: var(--suave); }
   .papel h2 { font-size: 18px; margin: 10px 0 6px; } .papel h3 { font-size: 14px; margin: 8px 0 4px; } .papel ul { padding-left: 18px; font-size: 13px; }
   .gente { color: var(--suave); font-size: 12px; margin-top: 6px; }
-  @media (max-width: 700px) { .escena-caja.cerca canvas { width: 320%; } }
 </style>
 {% endblock %}
 {% block contenido %}
@@ -40,7 +40,7 @@
 </div>
 <div class="barra-of">
   <div class="luces" id="luces"></div>
-  <div><span id="hora">{{ o.hora }}</span> · <button type="button" id="btn-zoom">🔍 Acercar</button> <button type="button" id="btn-quietos">🧍 Quietos</button></div>
+  <div><span id="hora">{{ o.hora }}</span> · <button type="button" id="btn-mas" title="Acercar (o la ruleta del ratón)">🔍 +</button> <button type="button" id="btn-menos" title="Alejar">🔍 −</button> <button type="button" id="btn-quietos">🧍 Quietos</button></div>
 </div>
 <div class="escena-caja" id="escena"><canvas id="lienzo" width="1200" height="760" aria-label="Oficina de La Madriguera Trading vista desde arriba"></canvas></div>
 
@@ -224,12 +224,13 @@ function globo(x, y, texto) {
 }
 
 // ---------- drawing ----------
-let sueloCache = null, escala = 1;
+let sueloCache = null, escala = 1, zoom = 1;
+const escena = document.getElementById('escena');
 function medir() {
   const ancho = (W + H) * TW / 2 + 40, alto = (W + H) * TH / 2 + MURO_ALTO + 110;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  const css = Math.max(320, document.getElementById('escena').clientWidth * (document.getElementById('escena').classList.contains('cerca') ? (innerWidth < 700 ? 3.2 : 2.2) : 1));
-  escala = Math.min(1.3, css / ancho) * dpr;
+  const css = Math.max(320, escena.clientWidth * zoom);
+  escala = Math.min(1.3 * Math.max(1, zoom * 0.75), css / ancho, 6000 / ancho / dpr) * dpr;   // sharper when zoomed in, capped so the canvas stays a sane size
   lienzo.width = Math.round(ancho * escala); lienzo.height = Math.round(alto * escala);
   origenX = H * TW / 2 + 20; origenY = MURO_ALTO + 70;
   sueloCache = null;
@@ -291,10 +292,40 @@ document.getElementById('btn-quietos').onclick = e => {
   quietos = !quietos; e.target.textContent = quietos ? '🚶 Moverse' : '🧍 Quietos';
   try { localStorage.setItem('oficina-quietos', quietos ? '1' : '0'); } catch (err) {}
 };
-document.getElementById('btn-zoom').onclick = e => {
-  const c = document.getElementById('escena').classList.toggle('cerca');
-  e.target.textContent = c ? '🔍 Alejar' : '🔍 Acercar'; medir();
-};
+// ---------- camera: mouse wheel zooms around the pointer, dragging moves around the office ----------
+let medirLuego = null;
+function zoomar(f, px, py) {
+  const nuevo = Math.min(5, Math.max(1, zoom * f));
+  if (nuevo === zoom) return;
+  const r = escena.getBoundingClientRect();
+  if (px === undefined) { px = r.width / 2; py = r.height / 2; }
+  // the office point under the pointer, as a fraction of the drawing, stays under the pointer
+  const fx = (escena.scrollLeft + px) / lienzo.clientWidth, fy = (escena.scrollTop + py) / lienzo.clientHeight;
+  zoom = nuevo;
+  escena.classList.toggle('cerca', zoom > 1);
+  lienzo.style.width = (zoom * 100) + '%';
+  escena.scrollLeft = fx * lienzo.clientWidth - px; escena.scrollTop = fy * lienzo.clientHeight - py;
+  clearTimeout(medirLuego); medirLuego = setTimeout(medir, 180);   // redraw at the new sharpness once the wheel stops
+}
+document.getElementById('btn-mas').onclick = () => zoomar(1.4);
+document.getElementById('btn-menos').onclick = () => zoomar(1 / 1.4);
+escena.addEventListener('wheel', ev => {
+  ev.preventDefault();
+  const r = escena.getBoundingClientRect();
+  zoomar(ev.deltaY < 0 ? 1.15 : 1 / 1.15, ev.clientX - r.left, ev.clientY - r.top);
+}, {passive: false});
+let arrastre = null;
+escena.addEventListener('mousedown', ev => {
+  if (ev.button !== 0) return;
+  arrastre = {x: ev.clientX, y: ev.clientY, sl: escena.scrollLeft, st: escena.scrollTop};
+  escena.classList.add('arrastrando'); ev.preventDefault();
+});
+addEventListener('mousemove', ev => {
+  if (!arrastre) return;
+  escena.scrollLeft = arrastre.sl - (ev.clientX - arrastre.x);
+  escena.scrollTop = arrastre.st - (ev.clientY - arrastre.y);
+});
+addEventListener('mouseup', () => { arrastre = null; escena.classList.remove('arrastrando'); });
 addEventListener('resize', medir);
 if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) quietos = true;
 construir(); medir();
