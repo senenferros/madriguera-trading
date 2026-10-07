@@ -50,6 +50,10 @@
   .radar li { padding: 8px 0; border-bottom: 1px solid var(--borde); font-size: 16px; }
   .radar .roles { margin: 6px 0 0 0; font-size: 15px; color: var(--suave); }
   .radar .roles b { color: var(--texto); }
+  .papel h2 .sim-etq, .papel .sim-etq { font-size: 13px; font-weight: 600; padding: 2px 8px; border-radius: 8px; background: rgba(242,196,109,.25); vertical-align: middle; }
+  .papel .papel-saldo { font-size: 26px; font-weight: 700; margin: 4px 0; }
+  .papel .gana { color: #3ecf6e; } .papel .pierde { color: #ff5a6a; }
+  .papel .pie { font-size: 14px; color: var(--suave); }
   .saldo { font-size: 28px; font-weight: 700; margin: 4px 0; }
   @media (max-width: 700px) {
     .banner h1 { font-size: 23px; } .banner p { font-size: 16px; }
@@ -121,6 +125,10 @@
     <span class="estado" id="estado-radar">{% if trabajo_radar and trabajo_radar.estado == 'corriendo' %}Buscando noticias…{% elif trabajo_radar and trabajo_radar.estado == 'error' %}{{ trabajo_radar.log[-1] }}{% endif %}</span>
   </form>
   {% endif %}
+</section>
+
+<section class="analisis radar" id="cartera">
+  {% include "_papel.html" %}
 </section>
 
 <section class="analisis radar" id="diario">

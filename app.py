@@ -25,6 +25,8 @@ Usage:
                                refresh the easy page's prices (Yahoo Finance + Kraken daily) and print the traffic lights
     python app.py analisis
                                the daily AI analysis of those markets (needs Claude Code); exit 0 saved, 1 no claude
+    python app.py papel [--sin-red]
+                               the paper portfolio (500 EUR, simulation): fresh Yahoo days, then one evaluation
     python app.py radar
                                the daily news radar: news, old-news labels, five-role verdicts, paper diary (needs Claude Code)
 """
@@ -332,6 +334,20 @@ def cmd_radar(args):
     return 0
 
 
+def cmd_papel(args):
+    from sala import bolsa, papel
+    avisar = lambda m: print("  " + bolsa.ascii_(m))
+    if not args.sin_red:
+        try:
+            papel.actualizar_datos(avisar=avisar)
+        except Exception as err:
+            print(f"  Sin datos nuevos de Yahoo ({bolsa.ascii_(str(err))})")
+    r = papel.evaluar(avisar=avisar)
+    print()
+    print("\n".join(bolsa.ascii_(x) for x in papel.texto_cli(r)))
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(prog="app.py", description="La Madriguera Trading")
     sub = parser.add_subparsers(dest="cmd")
@@ -361,12 +377,14 @@ def main():
     bo.add_argument("--sin-red", action="store_true", dest="sin_red", help="Solo muestra lo guardado, sin descargar")
     sub.add_parser("analisis", help="Análisis de cada día con IA de los mercados de la portada (necesita Claude Code)")
     sub.add_parser("radar", help="Radar de noticias con IA y diario de mentira (necesita Claude Code)")
+    pa = sub.add_parser("papel", help="Cartera de mentira de 500 € con las cuatro estrategias que pasaron (simulación)")
+    pa.add_argument("--sin-red", action="store_true", dest="sin_red", help="Evalúa con lo guardado, sin descargar")
     args = parser.parse_args()
     if not args.cmd:
         args.cmd, args.sin_navegador = "panel", False
     return {"comprobar": cmd_comprobar, "vigilar": cmd_vigilar, "panel": cmd_panel,
             "historico": cmd_historico, "backtest": cmd_backtest,
-            "bolsa": cmd_bolsa, "analisis": cmd_analisis, "radar": cmd_radar}[args.cmd](args)
+            "bolsa": cmd_bolsa, "analisis": cmd_analisis, "radar": cmd_radar, "papel": cmd_papel}[args.cmd](args)
 
 
 if __name__ == "__main__":

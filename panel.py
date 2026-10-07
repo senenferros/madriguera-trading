@@ -114,6 +114,9 @@ def crear_panel(vigia=True, bot=None):
                     if radar.toca(cfg=cfg) and analista.claude_disponible():
                         intento_radar["dia"] = date.today().isoformat()   # one automatic try a day, even if it fails
                         app.lanzar_radar()
+                if nucleo.automatico(cfg, "papel") and hasattr(app, "lanzar_papel") and intento_papel.get("dia") != date.today().isoformat():
+                    intento_papel["dia"] = date.today().isoformat()   # one automatic run a day, even if it fails
+                    app.lanzar_papel()
                 if nucleo.automatico(cfg, "parte") and mercado.toca_parte(cfg=cfg):
                     if bot.texto(mercado.parte(cfg)):
                         mercado.anotar_parte_enviado()
@@ -123,6 +126,7 @@ def crear_panel(vigia=True, bot=None):
 
     intento_analisis = {}
     intento_radar = {}
+    intento_papel = {}
 
     if vigia:
         threading.Thread(target=vigilar_bucle, daemon=True).start()
@@ -280,9 +284,35 @@ def crear_panel(vigia=True, bot=None):
 
     app.lanzar_radar = lanzar_radar   # the tests swap it for a fake
 
+    def lanzar_papel():
+        """The paper portfolio's daily step in the background: fresh Yahoo candles of its four markets, then one
+        evaluation (only new days count). False when one is already running."""
+        trabajo = {"estado": "corriendo", "log": []}
+        if not _reservar("papel", trabajo):
+            return False
+
+        def correr():
+            avisar = _registrar(trabajo, "Cartera")
+            try:
+                from sala import papel
+                try:
+                    papel.actualizar_datos(avisar=avisar)
+                except Exception as e:   # no network: evaluate with what is on disk
+                    avisar(f"Sin datos nuevos de Yahoo ({e})")
+                papel.evaluar(avisar=avisar)
+                trabajo["estado"] = "ok"
+            except Exception as e:
+                trabajo["log"].append(f"{time.strftime('%H:%M:%S')}  Error: {e}")
+                trabajo["estado"] = "error"
+
+        threading.Thread(target=correr, daemon=True).start()
+        return True
+
+    app.lanzar_papel = lanzar_papel   # the tests swap it for a fake
+
     @app.route("/")
     def facil():
-        from sala import analista, bolsa, radar
+        from sala import analista, bolsa, papel, radar
         try:
             diario = radar.actualizar_diario()
         except Exception:   # the diary is a bonus: the page must open anyway
@@ -291,7 +321,8 @@ def crear_panel(vigia=True, bot=None):
                                trabajo=trabajos.get("bolsa"), analisis=analista.ultimo(), claude_ok=analista.claude_disponible(),
                                trabajo_analisis=trabajos.get("analisis"), hoy=date.today().isoformat(),
                                radar=radar.ultimo(), trabajo_radar=trabajos.get("radar"), diario=diario,
-                               saldo=radar.saldo(diario), nombres_roles=radar.NOMBRES_ROLES, roles=radar.ROLES)
+                               saldo=radar.saldo(diario), nombres_roles=radar.NOMBRES_ROLES, roles=radar.ROLES,
+                               papel=papel.resumen())
 
     @app.post("/radar")
     def encargar_radar():
@@ -344,8 +375,8 @@ def crear_panel(vigia=True, bot=None):
                                calendario_job=trabajos.get("calendario"), telegram=bot.activo, reglas=equipo_mod.REGLAS_RIESGO)
 
     def _oficina_estado():
-        from sala import analista, bolsa, oficina as oficina_mod
-        return oficina_mod.estado(tarjetas=bolsa.tarjetas(), analisis=analista.ultimo(), automatico=_automaticos(),
+        from sala import analista, bolsa, papel, oficina as oficina_mod
+        return oficina_mod.estado(tarjetas=bolsa.tarjetas(), analisis=analista.ultimo(), automatico=_automaticos(), papel=papel.resumen(),
                                   banner=bolsa.banner(), equipo=equipo_mod.equipo(), reglas=equipo_mod.REGLAS_RIESGO,
                                   trabajos=trabajos, hora=time.strftime("%H:%M:%S"))
 

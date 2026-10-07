@@ -1,0 +1,21 @@
+{# The paper portfolio block ("Cartera de mentira"), shared by the easy page and the office's bots room. Needs `papel`. #}
+<div class="papel" id="papel">
+  <h2>Cartera de mentira (500 €) <span class="sim-etq">simulación</span></h2>
+  {% if papel and papel.empezada %}
+    <p class="papel-saldo">{{ '%.2f' % papel.saldo }} € <span class="{{ 'gana' if papel.resultado >= 0 else 'pierde' }}">({{ '%+.2f' % papel.resultado }} €, {{ '%+.2f' % papel.resultado_pct }} %)</span></p>
+    <p class="pie">Simulación desde el {{ papel.inicio }} · día {{ papel.dias }} de los {{ papel.dias_plan }} previstos (3 meses) · en efectivo {{ '%.2f' % papel.efectivo }} €{% if papel.ultima_evaluacion %} · revisada el {{ papel.ultima_evaluacion }}{% endif %}.</p>
+    {% if papel.apagado %}<p class="pierde"><strong>Apagada (simulación):</strong> ha perdido un 12 % desde su máximo y no abre nada más hasta que la revises.</p>{% endif %}
+    <h3>Posiciones abiertas (simulación)</h3>
+    {% if papel.posiciones %}<ul>{% for p in papel.posiciones %}
+      <li><strong>{{ p.nombre }}</strong> desde el {{ p.desde }}: entró a {{ p.entrada }}, stop en {{ p.stop }}, ahora {{ p.precio }} → <span class="{{ 'gana' if p.resultado >= 0 else 'pierde' }}">{{ '%+.2f' % p.resultado }} €</span></li>
+    {% endfor %}</ul>{% else %}<p>Ninguna ahora mismo.</p>{% endif %}
+    <h3>Operaciones cerradas (simulación): {{ papel.operaciones | length }} · {{ papel.ganadas }} ganadas · {{ papel.perdidas }} perdidas</h3>
+    {% if papel.operaciones %}<ul>{% for o in papel.operaciones %}
+      <li>{{ o.fecha_entrada }} → {{ o.fecha_salida }} · <strong>{{ o.nombre }}</strong>: <span class="{{ 'gana' if o.pnl > 0 else 'pierde' }}">{{ '%+.2f' % o.pnl }} €</span> ({{ o.motivo_texto }})</li>
+    {% endfor %}</ul>{% else %}<p>Todavía ninguna.</p>{% endif %}
+    {% for a in papel.avisos %}<p class="pie">{{ a }}</p>{% endfor %}
+  {% else %}
+    <p>Todavía no ha empezado. Empieza sola en la revisión de cada día (o con <code>python app.py papel</code>) y durará 3 meses.</p>
+  {% endif %}
+  <p class="pie">Sigue las cuatro estrategias que aprobaron el backtest: S&amp;P 500, Nasdaq 100 y DAX (rebote tras un mínimo) y Apple (rotura de canal diaria), con las mismas reglas: 1 % de riesgo por operación, siempre con stop y costes incluidos. {{ papel.aviso if papel else '' }}</p>
+</div>

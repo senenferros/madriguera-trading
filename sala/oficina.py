@@ -80,7 +80,7 @@ def _trabajadores(dep_id, equipo):
             for i, m in enumerate(gente[:4])]
 
 
-def estado(tarjetas=None, analisis=None, automatico=None, banner=None, equipo=None, reglas=None, trabajos=None, hora=""):
+def estado(tarjetas=None, analisis=None, automatico=None, banner=None, equipo=None, reglas=None, trabajos=None, hora="", papel=None):
     """Everything the office page draws, as plain JSON. All arguments are optional (missing data shows as such)."""
     tarjetas, equipo, reglas, automatico, trabajos = tarjetas or [], equipo or [], reglas or [], automatico or {}, trabajos or {}
     analisis = analisis if isinstance(analisis, dict) else None
@@ -123,6 +123,7 @@ def estado(tarjetas=None, analisis=None, automatico=None, banner=None, equipo=No
             b = banner or {}
             pantallas = [{"titulo": "Bots · simulación", "color": "amarillo" if b.get("hay") else "gris",
                           "valor": b.get("titulo") or "Sin backtests todavía", "linea": SIM, "texto": b.get("texto", "")}]
+            pantallas.extend(_pantallas_papel(papel))
             for clave, a in automatico.items():
                 pantallas.append({"titulo": a.get("nombre", clave), "color": "verde" if a.get("activo") else "gris",
                                   "valor": "Encendido" if a.get("activo") else "Apagado", "linea": "Simulación", "texto": ""})
@@ -133,4 +134,28 @@ def estado(tarjetas=None, analisis=None, automatico=None, banner=None, equipo=No
                                       "valor": str(tr.get("estado") or "parado").capitalize(), "linea": (tr.get("log") or [""])[-1][-80:], "texto": ""})
         deps.append({"id": dep_id, "nombre": nombre, "color": color, "pantallas": pantallas[:6],
                      "trabajadores": _trabajadores(dep_id, equipo)})
-    return {"cartel": "LA MADRIGUERA TRADING", "simulacion": SIM, "hora": hora, "luces": luces, "departamentos": deps}
+    return {"cartel": "LA MADRIGUERA TRADING", "simulacion": SIM, "hora": hora, "luces": luces, "departamentos": deps,
+            "papel": papel if isinstance(papel, dict) else None}
+
+
+def _pantallas_papel(p):
+    """The paper portfolio's screens in the bots room: balance and days, open positions, last closed trade."""
+    if not isinstance(p, dict) or not p.get("empezada"):
+        return [{"titulo": "Cartera de mentira (500 €) · simulación", "color": "gris", "valor": "Todavía no ha empezado",
+                 "linea": "Empieza en la primera evaluación del día", "texto": "Simulación: no hay dinero real."}]
+    color = "rojo" if p.get("apagado") else ("verde" if p.get("resultado", 0) >= 0 else "amarillo")
+    out = [{"titulo": "Cartera de mentira (500 €) · simulación", "color": color,
+            "valor": _coma(p.get("saldo"), 2, signo=False) + " €",
+            "linea": f"{_coma(p.get('resultado'), 2)} € · día {p.get('dias', 0)} de {p.get('dias_plan', 91)}",
+            "texto": ("Apagada por el −12 %. " if p.get("apagado") else "") + "Simulación: no hay dinero real."}]
+    pos = p.get("posiciones") or []
+    out.append({"titulo": "Posiciones abiertas (simulación)", "color": "verde" if pos else "gris",
+                "valor": ", ".join(x["nombre"] for x in pos) or "Ninguna",
+                "linea": " · ".join(f"{x['nombre']} {_coma(x['resultado'], 2)} €" for x in pos)[:120], "texto": ""})
+    ops = p.get("operaciones") or []
+    if ops:
+        o = ops[0]
+        out.append({"titulo": "Última operación (simulación)", "color": "verde" if o["pnl"] > 0 else "rojo",
+                    "valor": f"{o['nombre']} {_coma(o['pnl'], 2)} €", "linea": f"{o['fecha_salida']} · {o.get('motivo_texto', o['motivo'])}",
+                    "texto": f"{p.get('ganadas', 0)} ganadas · {p.get('perdidas', 0)} perdidas"})
+    return out

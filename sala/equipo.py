@@ -31,6 +31,7 @@ AUTOMATICOS = {
     "parte": "Parte diario por Telegram (a la hora de config.yaml)",
     "analisis": "Análisis de cada día con IA (a la hora de config.yaml)",
     "radar": "Radar de noticias con IA (una vez al día, a la hora de config.yaml)",
+    "papel": "Cartera de mentira de 500 € (una vez al día, simulación)",
 }
 REGLAS_RIESGO = [
     "1 % de riesgo por operación",

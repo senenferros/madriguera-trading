@@ -4,7 +4,7 @@ Una sala de mercados pequeña y honesta: un vigía que lee los precios públicos
 
 Es un proyecto independiente, extraído del departamento de mercados que vivía dentro de la oficina de Shorts. Aquí no hay vídeos ni YouTube: solo la sala.
 
-## Qué hace hoy (Fases 0 y 1)
+## Qué hace hoy (Fases 0 y 1, y el comienzo de la 2)
 
 - **Vigía**: velas de un minuto de `XBTEUR` y `ETHEUR` (API pública de Kraken), guardadas en `datos/velas/<par>/<día>.json`. Si arranca a media mañana, rellena la parte del día que falta con velas de 5 minutos, para que la apertura y el rango sean los del día real.
 - **Alertas**: rotura del máximo o del mínimo del día (una vez al día por lado, tras 30 velas) y picos de volumen (×3 sobre la mediana de la última hora, con 30 minutos de enfriamiento). Se guardan en `datos/alertas.json` y, si hay Telegram, se envían.
@@ -61,13 +61,24 @@ fuente, fecha, mercados afectados y un resumen de una frase. También con «Pasa
 
 Nada de esto compra ni vende, ni es un consejo de inversión.
 
+## Cartera de mentira (Fase 2, simulación)
+
+Una cuenta ficticia de **500 €** que sigue, cada día, las cuatro estrategias que dieron PASA en los backtests de bolsa: S&P 500, Nasdaq 100 y DAX con `rebote_minimo`, y Apple con `donchian_dia` (parámetros por defecto, fijados de antemano). Las cuatro comparten la misma cuenta y las mismas reglas que el backtest: 1 % de riesgo por operación (unos 5 €), siempre con stop, máximo 30 % en un activo, parada del día al −3 %, apagado al −12 %, costes de bolsa (0,10 % de comisión más deslizamiento), señal al cierre y orden al abrir del día siguiente. Sin conversión de divisa, igual que el backtest.
+
+- Usa las velas diarias de Yahoo del histórico (`datos/historico`). Se revisa sola una vez al día si el interruptor «Cartera de mentira» está encendido (baja los días nuevos de los cuatro mercados y apunta lo que haya pasado), o a mano con `python app.py papel` (`--sin-red` para usar solo lo guardado).
+- Solo cuentan los días nuevos: revisarla dos veces el mismo día no cambia nada. Empieza desde el día en que se revisa por primera vez, sin operar el pasado.
+- Guarda su estado en `datos/papel/estado.json`. Para empezar de cero, borra esa carpeta.
+- La portada y la sala de bots de la oficina enseñan el saldo, las posiciones abiertas, todas las operaciones cerradas (también las perdidas) y los días que lleva frente a los 3 meses previstos.
+
+Tres meses de una cartera de mentira no demuestran nada: con unas pocas operaciones, ganar o perder es sobre todo suerte. Sirve para ver que las reglas funcionan con precios nuevos, no para decidir si poner dinero.
+
 ## Las fases
 
 | Fase | Qué | Dinero |
 |------|-----|--------|
 | **0** | La sala y el vigía: datos, alertas, calendario, diario. | Ninguno |
-| **1** | Backtesting: el analista cuantitativo prueba las estrategias contra el histórico de Kraken guardado en `datos/historico/`, con walk-forward y las cinco reglas de riesgo. Esto es lo que hay ahora. | Ninguno |
-| **2** | Paper trading: el operador en simulación ejecuta las estrategias con precios reales y dinero ficticio; el gestor de riesgo aplica las reglas. | Ninguno |
+| **1** | Backtesting: el analista cuantitativo prueba las estrategias contra el histórico de Kraken guardado en `datos/historico/`, con walk-forward y las cinco reglas de riesgo. | Ninguno |
+| **2** | Paper trading: el operador en simulación ejecuta las estrategias con precios reales y dinero ficticio; el gestor de riesgo aplica las reglas. Empezada: la cartera de mentira de 500 €. | Ninguno |
 | **3** | Dinero pequeño en exchanges regulados bajo MiCA, solo con lo que la Fase 2 haya aguantado durante meses. El contable lleva el FIFO. | Pequeño |
 | **4** | Canal: el cronista cuenta lo que hace la sala, con sus datos y llamando simulación a la simulación. | — |
 
@@ -200,6 +211,7 @@ Desde una terminal, en la carpeta del proyecto:
 .venv\Scripts\python.exe app.py backtest ESTRATEGIA               [--par XBTEUR] [--desde AAAA-MM-DD] [--hasta AAAA-MM-DD] [--semillas 200]
 .venv\Scripts\python.exe app.py backtest --lista                  las nueve estrategias (seis intradía/4 h y tres diarias)
 .venv\Scripts\python.exe app.py historico yahoo [--par SPX500]   histórico diario largo de los mercados de bolsa (ver «Backtest de bolsa»)
+.venv\Scripts\python.exe app.py papel [--sin-red]                 la cartera de mentira de 500 € (simulación): días nuevos de Yahoo y una revisión
 .venv\Scripts\python.exe app.py bolsa [--sin-red]                 actualiza los precios de la portada fácil y enseña los semáforos
 ```
 
@@ -235,16 +247,19 @@ sala/yahoo.py              histórico diario largo (OHLCV) de Yahoo Finance para
 sala/telegram.py           envío de mensajes (sin botones ni escucha)
 sala/claude.py             Claude Code en modo headless, opcional (solo para el calendario)
 sala/equipo.py             las siete personas y las reglas de riesgo
-templates/                 base, facil, sala, oficina, backtest, comprobar
+templates/                 base, facil, sala, oficina, backtest, comprobar, _papel (el bloque de la cartera de mentira)
+sala/papel.py              la cartera de mentira de 500 € (Fase 2): las cuatro estrategias que pasaron, con las reglas del backtest
 sala/oficina.py            los datos de la oficina visual (departamentos, pantallas, trabajadores)
 tests/prueba.py            prueba sin red de la Fase 0: python tests\prueba.py
 tests/prueba_facil.py      prueba sin red de la portada fácil (Yahoo Finance falso, caché, colores, aviso, rutas, CLI): python tests\prueba_facil.py
 tests/prueba_oficina.py    prueba sin red de la oficina visual (departamentos, pantallas, simulación, rutas): python tests\prueba_oficina.py
 tests/prueba_radar.py      prueba sin red del radar (etiquetas, papeles, filtro de consejos, aprobación, cuentas del diario): python tests\prueba_radar.py
+tests/prueba_papel.py      prueba sin red de la cartera de mentira (pérdida por stop, apagado, día a día = de golpe, portada, oficina, CLI): python tests\prueba_papel.py
 tests/prueba_backtest.py   prueba sin red de la Fase 1 (histórico, motor, estrategias, veredicto, página, CLI): python tests\prueba_backtest.py
 datos/                     lo que genera la sala (no va al repositorio, salvo la semilla del calendario)
 datos/historico/           <par>/<N>m/<AAAA-MM>.json, estado.json, cursor_trades.json, ocupado.json
 datos/backtests/           <id>.json e indice.json
+datos/papel/               estado.json de la cartera de mentira
 ```
 
 ## Aviso

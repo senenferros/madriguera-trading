@@ -24,6 +24,11 @@
   .pant b { display: flex; gap: 8px; align-items: center; font-weight: 600; }
   .pant .v { display: block; font: 600 15px "Space Grotesk", Inter, sans-serif; overflow-wrap: anywhere; }
   .pant small { color: var(--suave); display: block; overflow-wrap: anywhere; }
+  .papel h2 .sim-etq, .papel .sim-etq { font-size: 13px; font-weight: 600; padding: 2px 8px; border-radius: 8px; background: rgba(242,196,109,.25); vertical-align: middle; }
+  .papel .papel-saldo { font-size: 26px; font-weight: 700; margin: 4px 0; }
+  .papel .gana { color: #3ecf6e; } .papel .pierde { color: #ff5a6a; }
+  .papel .pie { font-size: 14px; color: var(--suave); }
+  .papel h2 { font-size: 18px; margin: 10px 0 6px; } .papel h3 { font-size: 14px; margin: 8px 0 4px; } .papel ul { padding-left: 18px; font-size: 13px; }
   .gente { color: var(--suave); font-size: 12px; margin-top: 6px; }
   @media (max-width: 700px) { .escena-caja.cerca canvas { width: 320%; } }
 </style>
@@ -46,6 +51,7 @@
     {% for p in d.pantallas %}
     <div class="pant"><b><i class="luz-{{ p.color }}"></i>{{ p.titulo }}</b><span class="v">{{ p.valor }}</span><small>{{ p.linea }}</small>{% if p.texto %}<small>{{ p.texto }}</small>{% endif %}</div>
     {% endfor %}
+    {% if d.id == 'bots' %}{% with papel = o.papel %}{% include "_papel.html" %}{% endwith %}{% endif %}
     <div class="gente">👥 {% for t in d.trabajadores %}{{ t.nombre }}{% if t.rol %} ({{ t.rol }}){% endif %}{{ ", " if not loop.last }}{% endfor %}</div>
   </section>
   {% endfor %}
