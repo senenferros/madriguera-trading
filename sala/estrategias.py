@@ -1,5 +1,5 @@
 """Las estrategias del analista cuantitativo: indicadores causales como funciones puras sobre listas (sin numpy),
-el contrato `Estrategia`, las seis estrategias long-only de la Fase 1, `EstrategiaFija` para las pruebas y el `REGISTRO`.
+el contrato `Estrategia`, las seis estrategias long-only de la Fase 1, las tres diarias de medio plazo, `EstrategiaFija` para las pruebas y el `REGISTRO`.
 
 Nada aquí lee ficheros ni red. Toda serie devuelta por `preparar` está alineada por índice con `velas` y cada valor en
 `i` depende solo de `velas[:i+1]` (`None` mientras no hay datos suficientes). La señal se decide al cierre de la barra
@@ -202,6 +202,7 @@ class Estrategia:
     defecto = {}
     rejilla = {}
     min_ops_is = None   # None -> cfg['min_operaciones_is']
+    familia = None      # attempts are counted per family (None -> the id): a daily variant counts as one more try of its idea
 
     def preparar(self, velas, params, modo_dia="local"):
         return {}
@@ -426,6 +427,160 @@ class RSI(Estrategia):
         return None
 
 
+# ---------- daily medium-term strategies (marco 1440) ----------
+#
+# PRE-REGISTERED before any run on real data (2026-10-07). Grids are fixed here and are not to be tuned after
+# seeing results; any change is a new attempt and must be counted as such (intentos_previos counts per family).
+#   donchian_dia      n in {20, 55} (breakout of the n-day high), m in {10, 20} (exit on the m-day low) -> 4 combos
+#   cruce_medias_dia  SMA 50/200 and 20/100; initial protective stop 3 x ATR(14); exit on the cross down -> 2 combos
+#   rebote_minimo     the owner's video idea, see the class docstring; retroceso in {0.382, 0.5}, m in {10, 20}
+# Long only, spot, the five risk rules applied by the engine as for every other strategy.
+
+class DonchianDia(Estrategia):
+    id = "donchian_dia"
+    familia = "donchian"
+    titulo = "Rotura de canal diaria (tortuga)"
+    descripcion = "Compra al cerrar por encima del máximo de n días; sale al perder el mínimo de m días (stop que solo sube)."
+    marco = 1440
+    calentamiento = 56
+    defecto = {"n": 20, "m": 10}
+    rejilla = {"n": [20, 55], "m": [10, 20]}
+    min_ops_is = 4
+
+    def preparar(self, velas, params, modo_dia="local"):
+        return {"max_n": maximo_previo([v[2] for v in velas], int(params["n"]))}
+
+    def senal(self, i, velas, ctx, pos, params, memoria):
+        c = velas[i][4]
+        # the m-day low INCLUDING today (min of the previous m+1 bars shifted by one -> bars i-m..i)
+        mn = min(v[3] for v in velas[max(0, i - int(params["m"]) + 1):i + 1])
+        if pos is None:
+            mx = ctx["max_n"][i]
+            if mx is not None and c > mx and mn < c:
+                return {"accion": "comprar", "stop": mn, "objetivo": None}
+            return None
+        return {"stop": mn}
+
+
+class CruceMediasDia(Estrategia):
+    id = "cruce_medias_dia"
+    familia = "cruce_medias"
+    titulo = "Cruce de medias diario (50/200)"
+    descripcion = "Compra cuando la media simple rápida cruza por encima de la lenta (cruce dorado) y vende en el cruce contrario."
+    marco = 1440
+    calentamiento = 201
+    defecto = {"medias": [50, 200]}
+    rejilla = {"medias": [[50, 200], [20, 100]]}
+    min_ops_is = 1
+
+    def preparar(self, velas, params, modo_dia="local"):
+        c = [v[4] for v in velas]
+        rapida, lenta = params["medias"]
+        return {"sma_r": sma(c, rapida), "sma_l": sma(c, lenta), "atr14": atr(velas, 14)}
+
+    def senal(self, i, velas, ctx, pos, params, memoria):
+        r, l, a = ctx["sma_r"][i], ctx["sma_l"][i], ctx["atr14"][i]
+        if r is None or l is None or i == 0:
+            return None
+        if pos is None:
+            r0, l0 = ctx["sma_r"][i - 1], ctx["sma_l"][i - 1]
+            if r0 is not None and l0 is not None and r0 <= l0 and r > l and _atr_ok(a):
+                return {"accion": "comprar", "stop": velas[i][4] - 3 * a, "objetivo": None}
+            return None
+        if r < l:
+            return {"accion": "vender", "motivo": "senal"}
+        return None
+
+
+def pivotes(valores, k, tipo):
+    """Indices j where valores[j] is a strict pivot (max for 'alto', min for 'bajo') of valores[j-k:j+k+1]: strictly
+    beyond the k values on its left and at least as extreme as the k on its right. A pivot at j is only KNOWN at
+    bar j + k; callers must respect that."""
+    salida = []
+    for j in range(k, len(valores) - k):
+        x = valores[j]
+        izq, der = valores[j - k:j], valores[j + 1:j + k + 1]
+        if tipo == "alto" and all(x > y for y in izq) and all(x >= y for y in der):
+            salida.append(j)
+        elif tipo == "bajo" and all(x < y for y in izq) and all(x <= y for y in der):
+            salida.append(j)
+    return salida
+
+
+class ReboteMinimo(Estrategia):
+    """Rebote rápido tras un mínimo más bajo (idea del vídeo que mandó el dueño), formalizado así y fijado de antemano:
+
+    1. Pivotes de k = 3 barras a cada lado; un pivote en j solo se conoce en la barra j + 3.
+    2. Tramo de caída: desde el último pivote alto conocido H (índice h) hasta el mínimo más bajo B (índice b) de las
+       barras h+1..i-1. Barras de caída = b - h.
+    3. Mínimo más bajo: low[b] < el último pivote bajo anterior a h (el mínimo de oscilación previo).
+    4. La caída es de verdad: high[h] - low[b] >= 3 x ATR(14).
+    5. (B es el primero de los mínimos iguales.) Rebote rápido: el cierre de hoy recupera al menos `retroceso` de la caída (low[b] + r·(high[h] - low[b])) y lo
+       hace en menos barras de las que tardó en caer: i - b < b - h. Una entrada por cada mínimo B.
+    6. Stop bajo el nuevo mínimo: low[b] - 0,5 x ATR(14); después sube al mínimo de m días; salida por tiempo a las
+       40 barras.
+    """
+    id = "rebote_minimo"
+    titulo = "Rebote rápido tras un mínimo más bajo"
+    descripcion = ("Tras una caída que marca un mínimo por debajo del anterior, compra si el precio rebota más deprisa de lo "
+                   "que cayó; stop bajo el nuevo mínimo, salida en el mínimo de m días o a las 40 sesiones.")
+    marco = 1440
+    calentamiento = 30
+    defecto = {"retroceso": 0.5, "m": 10}
+    rejilla = {"retroceso": [0.382, 0.5], "m": [10, 20]}
+    min_ops_is = 3
+    K = 3
+    SALIDA_BARRAS = 40
+
+    def preparar(self, velas, params, modo_dia="local"):
+        k = self.K
+
+        def conocido(indices):
+            # [i] -> index of the most recent pivot already confirmed at bar i (j + k <= i), or None
+            salida, p, actual = [None] * len(velas), 0, None
+            for i in range(len(velas)):
+                while p < len(indices) and indices[p] + k <= i:
+                    actual = indices[p]
+                    p += 1
+                salida[i] = actual
+            return salida
+
+        return {"ultimo_alto": conocido(pivotes([v[2] for v in velas], k, "alto")),
+                "ultimo_bajo": conocido(pivotes([v[3] for v in velas], k, "bajo")), "atr14": atr(velas, 14)}
+
+    def senal(self, i, velas, ctx, pos, params, memoria):
+        a = ctx["atr14"][i]
+        c = velas[i][4]
+        if pos is not None:
+            if i - pos["entrada_i"] >= self.SALIDA_BARRAS:
+                return {"accion": "vender", "motivo": "tiempo"}
+            m = int(params["m"])
+            return {"stop": min(v[3] for v in velas[max(0, i - m + 1):i + 1])}
+        h = ctx["ultimo_alto"][i]
+        if h is None or not _atr_ok(a) or i - h < 3:
+            return None
+        # the lowest low of h+1..i-1 (the earliest one on ties: a rebound bar that only matches the low does not
+        # restart the rebound count)
+        b = None
+        for j in range(h + 1, i):
+            if b is None or velas[j][3] < velas[b][3]:
+                b = j
+        if b is None or memoria.get("b_usado") == b:
+            return None
+        # the most recent pivot low before h: known at bar h + k - 1 (index <= h - 1), and h + k - 1 < i
+        previo = ctx["ultimo_bajo"][h + self.K - 1]
+        if previo is None:
+            return None
+        minimo, alto = velas[b][3], velas[h][2]
+        caida_barras, rebote_barras = b - h, i - b
+        if not (minimo < velas[previo][3] and alto - minimo >= 3 * a and rebote_barras < caida_barras):
+            return None
+        if c >= minimo + params["retroceso"] * (alto - minimo):
+            memoria["b_usado"] = b
+            return {"accion": "comprar", "stop": minimo - 0.5 * a, "objetivo": None}
+        return None
+
+
 # ---------- registry and parameter grids (§5.5) ----------
 
 def combinaciones(rejilla, defecto):
@@ -441,10 +596,15 @@ def combinaciones(rejilla, defecto):
 
 
 REGISTRO = {"rotura_dia": RoturaDia(), "pico_volumen": PicoVolumen(), "cruce_medias": CruceMedias(),
-            "donchian": Donchian(), "bandas": Bandas(), "rsi": RSI()}
+            "donchian": Donchian(), "bandas": Bandas(), "rsi": RSI(),
+            "donchian_dia": DonchianDia(), "cruce_medias_dia": CruceMediasDia(), "rebote_minimo": ReboteMinimo()}
+
+
+def familia(est):
+    return getattr(est, "familia", None) or est.id
 
 
 def lista():
     """Lo que la página pinta en el desplegable, en el orden del registro."""
     return [{"id": e.id, "titulo": e.titulo, "marco": e.marco, "descripcion": e.descripcion,
-             "rejilla": e.rejilla, "defecto": e.defecto} for e in REGISTRO.values()]
+             "rejilla": e.rejilla, "defecto": e.defecto, "familia": familia(e)} for e in REGISTRO.values()]

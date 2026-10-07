@@ -12,7 +12,7 @@ Es un proyecto independiente, extraído del departamento de mercados que vivía 
 - **Calendario macro**: una semilla con las reuniones de la Fed y del BCE (`datos/calendario_semilla.json`, va en el repositorio) que el documentalista amplía con Claude Code y búsqueda web cuando se lo encargas desde el panel. Si no tienes el comando `claude`, el panel lo dice y el calendario se queda con la semilla y lo que apuntes a mano en `datos/calendario.json`.
 - **Diario de la sala**: notas, ideas y operaciones simuladas, con par, precio y cantidad. No se borra nada. El analista cuantitativo apunta ahí el veredicto de cada backtest.
 - **Histórico de velas** (Fase 1): años de velas de Kraken en `datos/historico/`, a partir de la API pública y de los CSV trimestrales que Kraken publica. Ver «Histórico de velas».
-- **Backtest** (Fase 1): seis estrategias long-only probadas con walk-forward y juzgadas solo fuera de muestra, con las cinco reglas de riesgo, comisiones y deslizamiento. Página `Backtest` del panel o `python app.py backtest`. Ver «Backtest (Fase 1)».
+- **Backtest** (Fase 1): seis estrategias long-only de corto plazo y tres diarias de medio plazo (también en S&P 500, IBEX, oro, plata, Brent y Tesla) probadas con walk-forward y juzgadas solo fuera de muestra, con las cinco reglas de riesgo, comisiones y deslizamiento. Página `Backtest` del panel o `python app.py backtest`. Ver «Backtest (Fase 1)».
 - **Panel web** en `http://127.0.0.1:5100`, solo accesible desde tu propio PC: la sala, la oficina (rótulo de cotizaciones, tres pantallas con los cierres de hoy, la pizarra con las reglas y las siete personas del equipo), la página de backtest y la página de comprobación.
 
 ## Portada fácil
@@ -90,7 +90,7 @@ Detalles que conviene saber:
 
 El analista cuantitativo prueba una estrategia contra el histórico de un par con **walk-forward**: elige los parámetros en un tramo de 180 días (dentro de muestra) y los juzga en los 60 días siguientes (fuera de muestra), que nunca ha visto; luego avanza 60 días y repite. Todas las ventanas fuera de muestra se cosen en una sola curva y **las puertas se evalúan solo ahí**. Las rejillas de parámetros viven en el código (4 combinaciones por estrategia); desde la página solo eliges estrategia, par y rango de fechas. Si salta el apagado del −12 %, la simulación cierra la posición y no vuelve a operar en esa ventana; en la siguiente reanuda con el pico puesto en el capital de ese momento (como harías tú tras revisar) y el apagado queda contado: la puerta 7 exige cero. Las entradas al azar del contraste reanudan en los mismos puntos.
 
-Las seis estrategias, todas long-only y al contado: `rotura_dia` (rotura del máximo del día, 15 min, la misma idea que la alerta del vigía), `pico_volumen` (pico de volumen con vela alcista, 5 min, misma definición que la alerta), `cruce_medias` (cruce de medias con stop móvil, 240 min), `donchian` (rotura de canal, 240 min), `bandas` (reversión a la media en tendencia, 60 min) y `rsi` (RSI sobrevendido con filtro de tendencia, 15 min). `python app.py backtest --lista` las enseña.
+Las seis estrategias de corto plazo, todas long-only y al contado: `rotura_dia` (rotura del máximo del día, 15 min, la misma idea que la alerta del vigía), `pico_volumen` (pico de volumen con vela alcista, 5 min, misma definición que la alerta), `cruce_medias` (cruce de medias con stop móvil, 240 min), `donchian` (rotura de canal, 240 min), `bandas` (reversión a la media en tendencia, 60 min) y `rsi` (RSI sobrevendido con filtro de tendencia, 15 min). `python app.py backtest --lista` las enseña, junto con las tres diarias de «Backtest de bolsa».
 
 Cada operación simulada paga **comisión del 0,40 % por lado** (taker de Kraken Pro en el tramo base; maker 0,25 %), **deslizamiento del 0,05 %** en órdenes a mercado y del 0,10 % en stops; el objetivo se llena como orden limitada, sin deslizamiento. Ida y vuelta, cerca del 0,9 %: es lo que decide lo intradía y se enseña, no se esconde. Si tu cuenta paga otra tarifa, cámbiala en `config.yaml → backtest.comision_pct`; antes de creerte un PASA repite con el doble de deslizamiento.
 
@@ -118,6 +118,42 @@ Con `cruce_medias` y `donchian` (240 min) hay pocas operaciones por ventana, as�
 
 Cada resultado queda en `datos/backtests/<id>.json` (parámetros por ventana, operaciones, curvas, puertas, referencias, costes) y en el diario de la sala como «idea» del analista cuantitativo. Un backtest tarda entre segundos y varios minutos; desde el panel se hace de uno en uno y comparte el procesador con el vigía: para el contraste completo (200 semillas) y marcos de 5 minutos, mejor la terminal.
 
+## Backtest de bolsa
+
+El mismo walk-forward honrado (las cinco reglas de riesgo y las siete puertas, juzgado solo fuera de muestra) juzga también estrategias de **medio plazo (días a semanas) sobre velas diarias**, en los mercados tradicionales y en BTC/ETH.
+
+**Datos.** `python app.py historico yahoo` baja de Yahoo Finance todas las velas diarias que haya (apertura, máximo, mínimo, cierre y volumen; decenas de años en el S&P 500 y el IBEX, desde 2000 en oro y plata, desde 2007 en Brent, desde 2010 en Tesla) y las guarda en `datos/historico/<CÓDIGO>/1440m/` como velas de 1440 min (fuente «yahoo»), al lado de las de Kraken. Los mercados están en `config.yaml → mercados_backtest`, con un código de par válido para el histórico: `SPX500` (S&P 500), `IBEX35`, `OROUSD` (oro), `PLATAUSD` (plata), `BRENTUSD` (Brent) y `TSLAUSD` (Tesla). Son solo para backtest: el vigía no los mira y nada se opera. La portada fácil sigue con sus 420 cierres de `datos/bolsa/`. Para BTC y ETH diarios con años de datos hace falta el CSV de Kraken importado (ver «Histórico»); la API solo da 720 días.
+
+**Costes por mercado** (`config.yaml → costes`, % por lado): en bolsa, con un bróker barato de la UE, **0,10 % de comisión + 0,05 % de deslizamiento** (0,10 % en stops); cripto sigue con la sección `backtest` (0,40 % taker de Kraken). Un mercado sin entrada en `costes` usa los de `backtest`. Antes de creerte un PASA, repite con tu tarifa real y con el doble de deslizamiento.
+
+**Estrategias diarias** (marco 1440, long-only, rejillas fijadas en el código antes de mirar ningún resultado):
+
+- `donchian_dia`: compra al cerrar por encima del máximo de n días (n = 20 o 55) y sale al perder el mínimo de m días (m = 10 o 20), un stop que solo sube. Cuenta como un intento más de la familia `donchian`.
+- `cruce_medias_dia`: cruce dorado de medias simples 50/200 (o 20/100); sale en el cruce contrario, con un stop de protección a 3 ATR. Familia `cruce_medias`. Hay muy pocos cruces: espera NO PASA por número de operaciones (puerta 4) aunque el resultado sea bueno, y es lo honesto.
+- `rebote_minimo` (la idea del vídeo): tras una caída, el precio marca un mínimo por debajo del mínimo de oscilación anterior y rebota **más deprisa de lo que cayó** (sesiones de rebote < sesiones de caída) recuperando al menos el 38,2 % o el 50 % de la caída → compra; stop bajo el nuevo mínimo (medio ATR), que luego sube al mínimo de m días (10 o 20); salida a las 40 sesiones si nada salta antes. Pivotes de 3 sesiones a cada lado, una caída de al menos 3 ATR y una entrada por mínimo; los detalles están en el comentario de la clase.
+
+Los intentos se cuentan **por familia y mercado**: `donchian_dia` en el S&P 500 suma a los backtests de `donchian` en el S&P 500, y el aviso lo dice.
+
+**Ventanas en diario: 2 años dentro de muestra / 6 meses fuera** (avanzando 6 meses; la última fuera de muestra vale si tiene al menos 90 días). Con 180/60 días, una estrategia diaria hace de 0 a 3 operaciones por ventana dentro de muestra: no hay con qué elegir parámetros y casi todas las ventanas caerían en «por defecto». Con 2 años hay de 4 a 20 operaciones por combinación (el mínimo para elegir es 4 en `donchian_dia`, 3 en `rebote_minimo`, 1 en `cruce_medias_dia`), y con 6 meses fuera la consistencia (puerta 6) se mide en tramos con alguna operación. Para 4 ventanas hacen falta 4 años de datos. Las siete puertas no cambian: más de 100 operaciones fuera de muestra (en diario eso pide muchos años: el S&P 500 y el IBEX los tienen, Tesla y Brent quizá no), y la puerta 7 permite como mucho un apagado del −12 % por cada 3 años fuera de muestra, con el drawdown < 20 %. Se cambian en `config.yaml → backtest.ventana_is_dias_diario`, `ventana_oos_dias_diario` y `oos_min_dias_diario`; cambiar la ventana después de ver un resultado es otro intento.
+
+**Qué ejecutar en tu PC** (copia esto en un `backtest_bolsa.bat` dentro de la carpeta del proyecto y haz doble clic; tarda de 10 a 40 minutos y deja todo en `datos\backtest_bolsa.log`):
+
+```
+@echo off
+cd /d %~dp0
+.venv\Scripts\python.exe app.py historico yahoo
+.venv\Scripts\python.exe app.py historico
+for %%E in (donchian_dia cruce_medias_dia rebote_minimo) do (
+  for %%P in (SPX500 IBEX35 OROUSD PLATAUSD BRENTUSD TSLAUSD XBTEUR ETHEUR) do (
+    echo ===== %%E %%P =====>> datos\backtest_bolsa.log
+    .venv\Scripts\python.exe app.py backtest %%E --par %%P >> datos\backtest_bolsa.log 2>&1
+  )
+)
+pause
+```
+
+Son 24 backtests: 24 intentos más. Con 24 pruebas sin ninguna ventaja real, lo esperable es que **alguna pase por puro azar**; un PASA aislado en un solo mercado no vale nada. Créetelo solo si la misma estrategia pasa en varios mercados parecidos (los dos índices, o oro y plata) y sobrevive al doble de deslizamiento.
+
 ## Cómo arrancarlo en Windows
 
 Necesitas Python 3.11 (marca «Add python.exe to PATH» al instalarlo). Descomprime o clona el proyecto en `D:\LA_MADRIGUERA_TRADING`.
@@ -140,7 +176,8 @@ Desde una terminal, en la carpeta del proyecto:
 .venv\Scripts\python.exe app.py historico reindexar               reconstruye el manifiesto estado.json
 .venv\Scripts\python.exe app.py historico derivar                 rehace las velas de 60 y 1440 min a partir de las de 1 min (tras rellenar un hueco con la API de operaciones)
 .venv\Scripts\python.exe app.py backtest ESTRATEGIA               [--par XBTEUR] [--desde AAAA-MM-DD] [--hasta AAAA-MM-DD] [--semillas 200]
-.venv\Scripts\python.exe app.py backtest --lista                  las seis estrategias
+.venv\Scripts\python.exe app.py backtest --lista                  las nueve estrategias (seis intradía/4 h y tres diarias)
+.venv\Scripts\python.exe app.py historico yahoo [--par SPX500]   histórico diario largo de los mercados de bolsa (ver «Backtest de bolsa»)
 .venv\Scripts\python.exe app.py bolsa [--sin-red]                 actualiza los precios de la portada fácil y enseña los semáforos
 ```
 
@@ -171,6 +208,7 @@ sala/historico.py          histórico de Kraken: OHLC + Trades + CSV, lector de 
 sala/estrategias.py        indicadores puros, contrato Estrategia, las seis estrategias
 sala/backtest.py           motor con las cinco reglas, métricas, walk-forward, referencias, azar, puertas, veredicto
 sala/bolsa.py              portada fácil: precios diarios de Yahoo Finance, semáforos, aviso honesto
+sala/yahoo.py              histórico diario largo (OHLCV) de Yahoo Finance para el backtest de bolsa
 sala/telegram.py           envío de mensajes (sin botones ni escucha)
 sala/claude.py             Claude Code en modo headless, opcional (solo para el calendario)
 sala/equipo.py             las siete personas y las reglas de riesgo

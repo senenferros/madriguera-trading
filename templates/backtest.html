@@ -75,7 +75,7 @@
     <form class="form-bt" method="post" action="{{ url_for('encargar_backtest') }}" id="form-backtest"><input type="hidden" name="_csrf" value="{{ csrf_token }}">
       <div class="ancho"><label for="b-estrategia">Estrategia</label>
         <select name="estrategia" id="b-estrategia">{% for e in estrategias %}<option value="{{ e.id }}">{{ e.titulo }} · {{ e.marco }} min · {{ e.descripcion }}</option>{% endfor %}</select></div>
-      <div><label for="b-par">Par</label><select name="par" id="b-par">{% for p in pares %}<option value="{{ p }}">{{ p }}</option>{% endfor %}</select></div>
+      <div><label for="b-par">Par</label><select name="par" id="b-par">{% for p in (pares_bt or pares) %}<option value="{{ p }}">{{ p }}</option>{% endfor %}</select></div>
       <div><label for="b-desde">Desde</label><input type="date" name="desde" id="b-desde" placeholder="AAAA-MM-DD"></div>
       <div><label for="b-hasta">Hasta</label><input type="date" name="hasta" id="b-hasta" placeholder="AAAA-MM-DD"></div>
       <div><button id="btn-bt" {{ 'disabled' if trabajo and trabajo.estado == 'corriendo' }}>{{ '⏳ Probando…' if trabajo and trabajo.estado == 'corriendo' else '🧪 Probar la estrategia' }}</button></div>

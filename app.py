@@ -11,6 +11,8 @@ Usage:
                                import Kraken's quarterly OHLCVT CSV files (XBTEUR_1.csv, XBTEUR_60.csv, ...)
     python app.py historico validar [--par XBTEUR] [--red]
                                check the files on disk (and, with --red, against Kraken's daily candles)
+    python app.py historico yahoo [--par SPX500]
+                               long daily OHLCV history of the traditional markets (Yahoo Finance) for the backtest
     python app.py historico reindexar
                                rebuild datos/historico/estado.json from the files
     python app.py historico derivar [--par XBTEUR] [--intervalos 60,1440]
@@ -91,6 +93,12 @@ def cmd_historico(args):
     import requests
     from pathlib import Path
     from sala import historico, mercado
+    if args.accion == "yahoo":
+        from sala import yahoo
+        print("Histórico diario de Yahoo Finance (mercados_backtest de config.yaml)…")
+        res = yahoo.actualizar(args.par, avisar=lambda m: print("  " + m))
+        _imprimir_resumen(historico, mercado)
+        return 1 if res and all(isinstance(v, str) for v in res.values()) else 0
     try:
         # 'xbteur' on the terminal must be the same pair as the XBTEUR of config.yaml, on disk and in the manifest
         pares = [historico._par_valido(p) for p in args.par] if args.par else mercado.configuracion()["pares"]
@@ -176,6 +184,14 @@ def cmd_historico(args):
         return 1
 
 
+def _nombre_mercado(par, mercado):
+    try:
+        from sala import yahoo
+        return yahoo.nombre(par) or mercado.nombre_par(par)
+    except Exception:
+        return mercado.nombre_par(par)
+
+
 def _imprimir_resumen(historico, mercado):
     res = historico.resumen()
     if not res:
@@ -183,7 +199,7 @@ def _imprimir_resumen(historico, mercado):
         return
     for par, intervalos in res.items():
         for intervalo, r in sorted(intervalos.items(), key=lambda kv: int(kv[0])):
-            print(f"  {mercado.nombre_par(par)} {intervalo} min: {r['desde']} → {r['hasta']}, {historico._miles(r['velas'])} velas, "
+            print(f"  {_nombre_mercado(par, mercado)} {intervalo} min: {r['desde']} → {r['hasta']}, {historico._miles(r['velas'])} velas, "
                   f"{r['huecos_largos']} huecos > 1 h ({', '.join(r['fuentes']) or 'sin fuente'})")
 
 
@@ -205,7 +221,7 @@ def cmd_backtest(args):
     from sala import estrategias
     if args.lista:
         for e in estrategias.lista():
-            print(f"{e['id']:<14} {e['marco']:>5} min  {e['titulo']}")
+            print(f"{e['id']:<17} {e['marco']:>5} min  {e['titulo']}")
         return 0
     if not args.estrategia:
         print("Falta la estrategia: python app.py backtest ESTRATEGIA [--par XBTEUR] (python app.py backtest --lista para verlas)")
@@ -214,10 +230,10 @@ def cmd_backtest(args):
         print(f"No conozco la estrategia «{args.estrategia}». Las que hay: " + ", ".join(estrategias.REGISTRO))
         return 1
     from sala import backtest, mercado
-    pares = mercado.configuracion()["pares"]
+    pares = backtest.pares_backtest()
     par = (args.par[0].strip().upper() if args.par and args.par[0] else "") or pares[0]
     if par not in pares:
-        print(f"El par {par} no está en config.yaml (pares: {', '.join(pares)}): añádelo o elige uno de esos")
+        print(f"El par {par} no está en config.yaml (pares y mercados_backtest: {', '.join(pares)}): añádelo o elige uno de esos")
         return 1
     if args.semillas is not None and args.semillas < 1:
         print("--semillas tiene que ser al menos 1 (con menos de 20 el contraste de azar nunca baja de p = 0,05)")
@@ -310,7 +326,7 @@ def main():
     sub.add_parser("vigilar", help="Una pasada del vigía y el parte del día, por pantalla")
     sub.add_parser("comprobar", help="Revisa exchange, datos y Telegram")
     h = sub.add_parser("historico", help="Histórico de velas de Kraken: actualizar, importar CSV, validar, reindexar, derivar")
-    h.add_argument("accion", nargs="?", choices=["actualizar", "importar", "validar", "reindexar", "derivar"], default="actualizar")
+    h.add_argument("accion", nargs="?", choices=["actualizar", "importar", "validar", "reindexar", "derivar", "yahoo"], default="actualizar")
     h.add_argument("ruta", nargs="?", help="Fichero .csv o carpeta con <PAR>_<N>.csv (solo importar)")
     h.add_argument("--par", action="append", help="Par de Kraken (XBTEUR); repetible; por defecto los de config.yaml")
     h.add_argument("--dias", type=int, help="Días hacia atrás que revisa el relleno por Trades (config: dias_trades)")
@@ -322,7 +338,7 @@ def main():
     h.add_argument("--red", action="store_true", help="validar: cruza la diaria remuestreada con la de Kraken")
     b = sub.add_parser("backtest", help="Backtest walk-forward de una estrategia (simulación)")
     b.add_argument("estrategia", nargs="?", help="Id de la estrategia (ver --lista)")
-    b.add_argument("--par", action="append", help="Par de Kraken (XBTEUR); por defecto el primero de config.yaml")
+    b.add_argument("--par", action="append", help="Par de Kraken (XBTEUR) o mercado de Yahoo (SPX500); por defecto el primero de config.yaml")
     b.add_argument("--desde", help="AAAA-MM-DD")
     b.add_argument("--hasta", help="AAAA-MM-DD")
     b.add_argument("--semillas", type=int, help="Entradas aleatorias de contraste (config: semillas_azar, 200)")

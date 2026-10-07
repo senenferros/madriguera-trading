@@ -1002,8 +1002,8 @@ def prueba_metricas_wf():
     ok(estrategias.combinaciones({}, {}) == [{}], "combinaciones vacías -> [{}]")
     ok(all(len(estrategias.combinaciones(e.rejilla, e.defecto)) <= 4 and all(e.defecto[k] in e.rejilla[k] for k in e.rejilla)
            for e in estrategias.REGISTRO.values()), "cada estrategia: <= 4 combinaciones y defecto dentro de la rejilla")
-    ok([e["id"] for e in estrategias.lista()] == ["rotura_dia", "pico_volumen", "cruce_medias", "donchian", "bandas", "rsi"]
-       and all(e["descripcion"] and e["marco"] for e in estrategias.lista()), "lista(): las seis estrategias con descripción")
+    ok([e["id"] for e in estrategias.lista()] == ["rotura_dia", "pico_volumen", "cruce_medias", "donchian", "bandas", "rsi", "donchian_dia", "cruce_medias_dia", "rebote_minimo"]
+       and all(e["descripcion"] and e["marco"] for e in estrategias.lista()), "lista(): las nueve estrategias con descripción")
 
 
 # =====================================================================================================================
@@ -1452,6 +1452,194 @@ def prueba_cli():
 
 
 # =====================================================================================================================
+# Backtest de bolsa: histórico diario de Yahoo, costes por mercado, estrategias diarias, correr() en un mercado sintético
+# =====================================================================================================================
+
+T_2012 = 1_325_462_400   # 2012-01-02 00:00 UTC, a Monday
+
+
+def serie_diaria(anos, semilla=3, t0=T_2012):
+    """Weekday-only daily candles: a random walk with slow up/down regimes (so averages cross and breakouts fail)."""
+    rng = random.Random(semilla)
+    out, c, d = [], 100.0, 0
+    while len(out) < int(anos * 261):
+        t = t0 + d * 86400
+        d += 1
+        if datetime.fromtimestamp(t, timezone.utc).weekday() >= 5:
+            continue
+        k = len(out)
+        deriva = 0.0012 * math.sin(2 * math.pi * k / 500)
+        o = c * (1 + rng.gauss(0, 0.003))
+        c = o * (1 + deriva + rng.gauss(0, 0.011))
+        h = max(o, c) * (1 + abs(rng.gauss(0, 0.004)))
+        l = min(o, c) * (1 - abs(rng.gauss(0, 0.004)))
+        out.append([t, round(o, 4), round(h, 4), round(l, 4), round(c, 4), float(rng.randint(1000, 5000))])
+    return out
+
+
+def chart_yahoo(velas, offset=-18000, granularidad="1d"):
+    """Yahoo chart JSON for daily candles: timestamps at the 09:30 New York open (14:30 UTC with offset -5 h)."""
+    return {"chart": {"result": [{"meta": {"gmtoffset": offset, "dataGranularity": granularidad},
+                                  "timestamp": [v[0] + 14 * 3600 + 1800 for v in velas],
+                                  "indicators": {"quote": [{"open": [v[1] for v in velas], "high": [v[2] for v in velas],
+                                                            "low": [v[3] for v in velas], "close": [v[4] for v in velas],
+                                                            "volume": [v[5] for v in velas]}]}}], "error": None}}
+
+
+def velas_de(cierres, t0=T_2012):
+    out, prev = [], cierres[0]
+    for k, c in enumerate(cierres):
+        out.append([t0 + k * 86400, prev, max(prev, c) + 0.5, min(prev, c) - 0.5, c, 1000.0])
+        prev = c
+    return out
+
+
+def prueba_bolsa_diaria():
+    from sala import yahoo
+    # --- parser
+    base = [[T_2012 + k * 86400, 100.0 + k, 101.0 + k, 99.0 + k, 100.5 + k, 10.0] for k in range(30)]
+    js = chart_yahoo(base)
+    q = js["chart"]["result"][0]["indicators"]["quote"][0]
+    q["close"][3] = None            # a day without a close is dropped
+    q["open"][4] = None             # a missing open is filled from the close
+    q["high"][5] = 50.0             # a high below open/close is widened
+    q["volume"][6] = None
+    velas = yahoo.parsear_chart(js)
+    ok(len(velas) == 29 and all(v[0] % 86400 == 0 for v in velas) and velas[0][0] == T_2012, "yahoo: 1 vela por día, t a las 00:00 UTC del día de la bolsa")
+    ok(all(historico.validar_vela(v, 1440) for v in velas), "yahoo: todas las velas pasan validar_vela(1440)")
+    v4 = [v for v in velas if v[0] == T_2012 + 4 * 86400][0]
+    v5 = [v for v in velas if v[0] == T_2012 + 5 * 86400][0]
+    v6 = [v for v in velas if v[0] == T_2012 + 6 * 86400][0]
+    ok(v4[1] == v4[4] and v5[2] == max(v5[1], v5[4]) and v6[5] == 0.0 and not any(v[0] == T_2012 + 3 * 86400 for v in velas),
+       "yahoo: open vacío = cierre, máximo corregido, volumen vacío = 0, día sin cierre fuera")
+    asia = yahoo.parsear_chart(chart_yahoo(base[:5], offset=9 * 3600))
+    ok([v[0] for v in asia] == [v[0] + 86400 for v in base[:5]] or [v[0] for v in asia] == [v[0] for v in base[:5]], "yahoo: el día sale del gmtoffset de la bolsa")
+    for malo, nombre in ((chart_yahoo(base, granularidad="1wk"), "granularidad semanal"), ({"chart": {"result": None}}, "sin resultado"),
+                         (chart_yahoo([[T_2012 + k * 7 * 86400, 1, 1, 1, 1, 1] for k in range(30)]), "velas cada 7 días")):
+        try:
+            yahoo.parsear_chart(malo)
+            ok(False, f"yahoo: {nombre} -> ValueError")
+        except ValueError:
+            ok(True, f"yahoo: {nombre} -> ValueError")
+    # --- download into the history (fuente yahoo) through the hook
+    limpiar_historico()
+    serie = serie_diaria(9)
+    yahoo.descargar_fn = lambda simbolo: chart_yahoo(serie) if simbolo == "^GSPC" else (_ for _ in ()).throw(ValueError("sin datos"))
+    try:
+        res = yahoo.actualizar(avisar=lambda m: None, cfg={})
+    finally:
+        yahoo.descargar_fn = None
+    ok(res.get("SPX500") == len(serie) and str(res.get("IBEX35", "")).startswith("error"), f"yahoo.actualizar: S&P 500 guardado, IBEX con error sin parar ({res.get('SPX500')})")
+    r = historico.resumen().get("SPX500", {}).get("1440") or {}
+    ok("yahoo" in (r.get("fuentes") or []) and historico.rango_disponible("SPX500", 1440) == (serie[0][0], serie[-1][0] + 86400),
+       "historico: SPX500 1440 min con fuente yahoo y rango_disponible")
+    ok(historico.cargar("SPX500", serie[0][0], serie[-1][0] + 86400, 1440) == serie, "historico.cargar devuelve las velas diarias tal cual")
+    ok(set(yahoo.pares({})) == {"SPX500", "IBEX35", "OROUSD", "PLATAUSD", "BRENTUSD", "TSLAUSD"} and all(len(p) >= 6 for p in yahoo.pares({})),
+       "yahoo: seis códigos de mercado válidos para historico")
+    ok("SPX500" in backtest.pares_backtest({"pares": ["XBTEUR"]}) and "XBTEUR" in backtest.pares_backtest({"pares": ["XBTEUR"]}), "pares_backtest: Kraken + Yahoo")
+    ok(backtest.nombre_mercado("SPX500") == "S&P 500" and backtest.nombre_mercado("XBTEUR") == "BTC/EUR", "nombre_mercado")
+
+    # --- costs per market
+    c = backtest.configuracion({"backtest": {"comision_pct": 0.4}, "costes": {"TSLAUSD": {"comision_pct": 0.2}, "XBTEUR": "x"}})
+    ok(backtest.costes_par(c, "SPX500")["comision_pct"] == 0.1 and backtest.costes_par(c, "SPX500")["deslizamiento_pct"] == 0.05,
+       "costes: bolsa por defecto 0,10 % + 0,05 %")
+    ok(backtest.costes_par(c, "XBTEUR")["comision_pct"] == 0.4 and backtest.costes_par(c, "TSLAUSD")["comision_pct"] == 0.2
+       and backtest.costes_par(c, "TSLAUSD")["deslizamiento_pct"] == 0.05, "costes: cripto se queda en 0,40 %; una entrada propia manda")
+    guion = fija({60: {"accion": "comprar", "stop": 90.0}, 70: {"accion": "vender", "motivo": "senal"}}, marco=1440)
+    plano = [[T_2012 + k * 86400, 100.0, 100.5, 99.5, 100.0, 1.0] for k in range(80)]
+    caro = backtest.simular(plano, guion, {}, backtest.costes_par(c, "XBTEUR"))["operaciones"][0]
+    barato = backtest.simular(plano, guion, {}, backtest.costes_par(c, "SPX500"))["operaciones"][0]
+    ok(barato["comisiones"] < caro["comisiones"] / 3 and barato["pnl"] > caro["pnl"], f"costes: la misma operación paga 4 veces menos comisión en bolsa ({barato['comisiones']} vs {caro['comisiones']})")
+
+    # --- strategies: registry
+    for eid, fam in (("donchian_dia", "donchian"), ("cruce_medias_dia", "cruce_medias"), ("rebote_minimo", "rebote_minimo")):
+        est = estrategias.REGISTRO[eid]
+        ok(est.marco == 1440 and estrategias.familia(est) == fam and len(estrategias.combinaciones(est.rejilla, est.defecto)) <= 4,
+           f"{eid}: marco 1440, familia {fam}, rejilla pequeña")
+    ok(estrategias.familia(estrategias.REGISTRO["rsi"]) == "rsi", "familia por defecto = id")
+
+    # --- donchian_dia: breakout of the n-day high, stop on the m-day low that only rises
+    dd = estrategias.REGISTRO["donchian_dia"]
+    v = [[T_2012 + k * 86400, 100, 100.5, 99.5, 100, 1] for k in range(60)]
+    v.append([T_2012 + 60 * 86400, 100, 102.5, 99.8, 102, 1])
+    v += [[T_2012 + k * 86400, 102, 103, round(101.5 + 0.01 * (k - 61), 2), 102.5, 1] for k in range(61, 76)]
+    v.append([T_2012 + 76 * 86400, 102.5, 102.6, 100, 100.5, 1])
+    v += [[T_2012 + k * 86400, 100.5, 101, 100, 100.5, 1] for k in range(77, 80)]
+    ctx = dd.preparar(v, dd.defecto, "utc")
+    s59, s60 = dd.senal(59, v, ctx, None, dd.defecto, {}), dd.senal(60, v, ctx, None, dd.defecto, {})
+    ok(s59 is None and s60 and s60["accion"] == "comprar" and s60["stop"] == 99.5, f"donchian_dia: compra al superar el máximo de 20 días, stop en el mínimo de 10 ({s60})")
+    r = backtest.simular(v, dd, dd.defecto, CFG)
+    op = r["operaciones"][0] if r["operaciones"] else None
+    ok(op is not None and op["entrada_i"] == 61 and op["motivo"] == "stop" and op["salida_i"] == 76 and cerca(op["salida"], round(101.55 * 0.999, 4), 1e-6) and op["stop_final"] == 101.55,
+       f"donchian_dia: sale en el mínimo de 10 días que ha ido subiendo ({op and (op['motivo'], op['salida'])})")
+
+    # --- cruce_medias_dia: golden cross in, death cross out
+    cm = estrategias.REGISTRO["cruce_medias_dia"]
+    ondas = velas_de([100 + 20 * math.sin(2 * math.pi * k / 400) for k in range(1400)])
+    r = backtest.simular(ondas, cm, cm.defecto, CFG)
+    ctx = cm.preparar(ondas, cm.defecto, "utc")
+    entradas_ok = all(ctx["sma_r"][o["entrada_i"] - 2] <= ctx["sma_l"][o["entrada_i"] - 2] and ctx["sma_r"][o["entrada_i"] - 1] > ctx["sma_l"][o["entrada_i"] - 1]
+                      for o in r["operaciones"])
+    ok(len(r["operaciones"]) >= 2 and entradas_ok and all(o["motivo"] in ("senal", "stop", "fin") for o in r["operaciones"]),
+       f"cruce_medias_dia: entra el día después del cruce dorado ({len(r['operaciones'])} op)")
+    ok(any(o["motivo"] == "senal" for o in r["operaciones"]), "cruce_medias_dia: sale en el cruce contrario")
+
+    # --- rebote_minimo: lower low, then a rebound faster than the fall
+    rm = estrategias.REGISTRO["rebote_minimo"]
+
+    def patron(rebote):
+        c = [100 - 5 * k / 15 for k in range(16)] + [95 + 15 * (k - 15) / 10 for k in range(16, 26)]
+        c += [110 - 20 * (k - 25) / 10 for k in range(26, 36)] + rebote
+        return velas_de([round(x, 4) for x in c] + [c[-1] + rebote[-1] - rebote[-1]] * 10)
+
+    rapido = patron([95.0, 101.0])
+    ctx = rm.preparar(rapido, rm.defecto, "utc")
+    s36, s37 = rm.senal(36, rapido, ctx, None, rm.defecto, {}), rm.senal(37, rapido, ctx, None, rm.defecto, {})
+    ok(s36 is None and s37 and s37["accion"] == "comprar" and s37["stop"] < 89.5 and s37["stop"] > 85,
+       f"rebote_minimo: mínimo más bajo + rebote en 2 sesiones tras caer 10 -> compra con stop bajo el mínimo ({s37})")
+    r = backtest.simular(rapido, rm, rm.defecto, CFG)
+    ok(len(r["operaciones"]) == 1 and r["operaciones"][0]["entrada_i"] == 38, f"rebote_minimo: una sola entrada por mínimo, al open siguiente ({len(r['operaciones'])} op)")
+    lento = patron([90 + 11 * j / 12 for j in range(1, 13)])
+    r = backtest.simular(lento, rm, rm.defecto, CFG)
+    ok(r["operaciones"] == [], "rebote_minimo: si rebota más despacio de lo que cayó, no entra")
+    sin_minimo = patron([95.0, 101.0])
+    for k in range(12, 19):   # the previous swing low is now below the new low: not a lower low
+        sin_minimo[k][3] = 85.0
+    ctx = rm.preparar(sin_minimo, rm.defecto, "utc")
+    ok(rm.senal(37, sin_minimo, ctx, None, rm.defecto, {}) is None, "rebote_minimo: sin mínimo más bajo que el anterior, no entra")
+    ctx_t = rm.preparar(rapido, rm.defecto, "utc")
+    pos = {"entrada_i": 38}
+    ok(rm.senal(78, rapido + [[rapido[-1][0] + k * 86400, 101, 101.5, 100.5, 101, 1] for k in range(1, 40)],
+                rm.preparar(rapido + [[rapido[-1][0] + k * 86400, 101, 101.5, 100.5, 101, 1] for k in range(1, 40)], rm.defecto, "utc"),
+                pos, rm.defecto, {}) == {"accion": "vender", "motivo": "tiempo"} and ctx_t is not None,
+       "rebote_minimo: salida por tiempo a las 40 sesiones")
+
+    # --- walk-forward windows for daily
+    ok(backtest.ventanas_cfg(CFG, 1440) == (730, 182, 90) and backtest.ventanas_cfg(CFG, 240) == (180, 60, 30), "ventanas: 2 años / 6 meses en diario, 180/60 en el resto")
+
+    # --- full correr() on the synthetic S&P 500
+    previos_antes = backtest.intentos_previos("donchian", "SPX500")
+    res = correr("donchian_dia", "SPX500", cfg=CFG, semillas=20)
+    w = res["ventanas"]
+    ok(len(w) >= 10 and all(x["is"][1] - x["is"][0] == 730 * 86400 for x in w) and all(x["oos"][1] - x["oos"][0] <= 182 * 86400 for x in w),
+       f"correr diario: {len(w)} ventanas de 2 años IS / 6 meses OOS")
+    ok(res["nombre_par"] == "S&P 500" and res["marco"] == 1440 and res["costes"]["comision_pct"] == 0.1 and res["cfg"]["comision_pct"] == 0.1,
+       "correr diario: nombre S&P 500 y costes de bolsa (0,10 %)")
+    ok(res["oos"]["veredicto"]["clave"] in ("pasa", "no_pasa") and len(res["oos"]["puertas"]) == 7 and res["oos"]["metricas"]["n"] > 0,
+       f"correr diario: siete puertas y veredicto ({res['oos']['veredicto']['clave']}, {res['oos']['metricas']['n']} op)")
+    ok(res["familia"] == "donchian" and backtest.intentos_previos("donchian", "SPX500") == previos_antes + 1, "intentos: donchian_dia cuenta en la familia donchian")
+    res2 = correr("rebote_minimo", "SPX500", cfg=CFG, semillas=20)
+    res3 = correr("cruce_medias_dia", "SPX500", cfg=CFG, semillas=20)
+    ok(all(x["oos"]["veredicto"]["clave"] in ("pasa", "no_pasa", "insuficiente") for x in (res2, res3)),
+       f"correr diario: rebote_minimo ({res2['oos']['metricas']['n']} op) y cruce_medias_dia ({res3['oos']['metricas']['n']} op) con veredicto")
+    res4 = correr("donchian_dia", "SPX500", cfg=CFG, semillas=20)
+    ok(res4["intentos_previos"] == previos_antes + 1 and any("familia donchian" in a for a in res4["oos"]["avisos"]),
+       "intentos: el segundo backtest de la familia donchian en el mismo mercado avisa")
+    ok(backtest.intentos_previos("donchian", "XBTEUR") == backtest.intentos_previos("donchian", "XBTEUR") and backtest.intentos_previos("donchian", "IBEX35") == 0,
+       "intentos: por familia y mercado")
+
+
+# =====================================================================================================================
 
 seccion("Histórico: disco y lector", prueba_historico_disco, ("sala.historico", historico))
 seccion("Histórico: fuentes", prueba_historico_fuentes, ("sala.historico", historico))
@@ -1462,6 +1650,7 @@ seccion("Backtest: estrategias", prueba_estrategias, ("sala.estrategias", estrat
 seccion("Backtest: veredicto", prueba_veredicto, ("sala.historico", historico), ("sala.estrategias", estrategias), ("sala.backtest", backtest))
 seccion("Panel: backtest", prueba_panel, ("sala.historico", historico), ("sala.estrategias", estrategias), ("sala.backtest", backtest))
 seccion("CLI", prueba_cli, ("sala.historico", historico), ("sala.estrategias", estrategias), ("sala.backtest", backtest))
+seccion("Backtest de bolsa (diario)", prueba_bolsa_diaria, ("sala.historico", historico), ("sala.estrategias", estrategias), ("sala.backtest", backtest))
 
 print()
 print(f"({time.time() - INICIO_PRUEBAS:.1f} s)")

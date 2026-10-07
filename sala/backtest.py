@@ -20,7 +20,7 @@ import nucleo
 from sala import estrategias, mercado
 from sala.estrategias import Estrategia, dia_de
 
-AVISO_HONESTO = ("Esto es una simulación sobre precios pasados de Kraken, con comisiones y deslizamiento estimados; ninguna orden "
+AVISO_HONESTO = ("Esto es una simulación sobre precios pasados (Kraken o Yahoo Finance), con comisiones y deslizamiento estimados; ninguna orden "
                  "se ha enviado a ningún sitio. Lo que pasó no predice lo que pasará: una estrategia que aprueba fuera de muestra "
                  "puede dejar de funcionar mañana, y la mayoría de quien hace trading a corto plazo pierde dinero. Cada backtest "
                  "es una prueba más: de 20 estrategias sin ventaja real, una aprobaría las puertas por puro azar. «PASA» solo "
@@ -39,11 +39,20 @@ DEFECTOS = {
     "ventana_is_dias": 180, "ventana_oos_dias": 60, "oos_min_dias": 30, "ventanas_minimas": 4,
     "min_operaciones_is": 30, "hueco_max_dias": 7, "semillas_azar": 200, "semillas_azar_panel": 50,
     "max_operaciones_guardadas": 5000,
+    # daily strategies (marco 1440): 180/60-day windows hold 0-3 daily trades, too few to pick parameters in sample,
+    # so they use 2 years in sample / 6 months out of sample (sliding by 6 months); see README «Backtest de bolsa»
+    "ventana_is_dias_diario": 730, "ventana_oos_dias_diario": 182, "oos_min_dias_diario": 90,
 }
+# Per-market costs (% per side). Crypto keeps the backtest section (Kraken taker 0.40 %); the traditional markets
+# assume a cheap EU broker / CFD-free spot ETF: 0.10 % commission + 0.05 % slippage (0.10 % on stops).
+COSTE_BOLSA = {"comision_pct": 0.10, "deslizamiento_pct": 0.05, "deslizamiento_stop_pct": 0.10}
+COSTES_DEFECTO = {p: dict(COSTE_BOLSA) for p in ("SPX500", "IBEX35", "OROUSD", "PLATAUSD", "BRENTUSD", "TSLAUSD")}
+_CLAVES_COSTE = ("comision_pct", "deslizamiento_pct", "deslizamiento_stop_pct")
 PUERTAS_DEFECTO = {"expectativa_min": 0, "profit_factor_min": 1.3, "drawdown_max_pct": 20, "operaciones_min": 100,
                    "p_azar_max": 0.05, "consistencia_min": 0.5}
 _ENTEROS = ("ventana_is_dias", "ventana_oos_dias", "oos_min_dias", "ventanas_minimas", "min_operaciones_is",
-            "hueco_max_dias", "semillas_azar", "semillas_azar_panel", "max_operaciones_guardadas")
+            "hueco_max_dias", "semillas_azar", "semillas_azar_panel", "max_operaciones_guardadas",
+            "ventana_is_dias_diario", "ventana_oos_dias_diario", "oos_min_dias_diario")
 
 
 # ---------- config (§6.1) ----------
@@ -79,6 +88,18 @@ def configuracion(cfg=None):
     salida["ventana_is_dias"] = max(1, salida["ventana_is_dias"])
     salida["ventana_oos_dias"] = max(1, salida["ventana_oos_dias"])
     salida["ventanas_minimas"] = max(1, salida["ventanas_minimas"])
+    salida["ventana_is_dias_diario"] = max(1, salida["ventana_is_dias_diario"])
+    salida["ventana_oos_dias_diario"] = max(1, salida["ventana_oos_dias_diario"])
+    # top-level section `costes: {PAR: {comision_pct, deslizamiento_pct, deslizamiento_stop_pct}}` over the defaults
+    costes = {p: dict(c) for p, c in COSTES_DEFECTO.items()}
+    bruto = cfg.get("costes") if isinstance(cfg, dict) and isinstance(cfg.get("costes"), dict) else {}
+    for par, c in bruto.items():
+        if not isinstance(c, dict):
+            continue
+        par = str(par).strip().upper()
+        base = costes.get(par, {})
+        costes[par] = {k: _numero(c.get(k), base.get(k, salida[k]), minimo=0) for k in _CLAVES_COSTE}
+    salida["costes"] = costes
     puertas = bt.get("puertas") if isinstance(bt.get("puertas"), dict) else {}
     salida["puertas"] = {k: _numero(puertas.get(k), d) for k, d in PUERTAS_DEFECTO.items()}
     return salida
@@ -89,6 +110,22 @@ def _cfg(cfg):
     if isinstance(cfg, dict) and "capital_inicial" in cfg and isinstance(cfg.get("puertas"), dict) and "backtest" not in cfg:
         return cfg
     return configuracion(cfg)
+
+
+def costes_par(cfg, par):
+    """The validated config with this market's commission and slippage (section `costes`); unchanged for a pair
+    without its own entry (crypto: the backtest section)."""
+    propio = (cfg.get("costes") or {}).get(par)
+    if not propio:
+        return cfg
+    return {**cfg, **{k: propio[k] for k in _CLAVES_COSTE if k in propio}}
+
+
+def ventanas_cfg(cfg, marco):
+    """(is_dias, oos_dias, oos_min_dias) for this timeframe: the daily set for marco >= 1440, the normal one otherwise."""
+    if int(marco) >= 1440:
+        return (cfg.get("ventana_is_dias_diario", 730), cfg.get("ventana_oos_dias_diario", 182), cfg.get("oos_min_dias_diario", 90))
+    return cfg["ventana_is_dias"], cfg["ventana_oos_dias"], cfg["oos_min_dias"]
 
 
 # ---------- helpers: numbers and dates for humans (§2.4) ----------
@@ -532,7 +569,7 @@ def walk_forward(velas, estrategia, cfg, desde_t, hasta_t, avisar=print):
     """Ventana a ventana: parámetros elegidos en IS, juzgados en la OOS siguiente con el capital y el estado (pico,
     apagado, parada del día) arrastrados: una sola curva cosida y la regla 4 acumulada de verdad. Un apagado deja la
     ventana sin operar; la siguiente reanuda con el pico en el capital de ese momento y el apagado queda contado."""
-    lista = ventanas(desde_t, hasta_t, cfg["ventana_is_dias"], cfg["ventana_oos_dias"], cfg["oos_min_dias"])
+    lista = ventanas(desde_t, hasta_t, *ventanas_cfg(cfg, estrategia.marco))
     capital = float(cfg["capital_inicial"])
     estado = None
     salida_v = []
@@ -777,7 +814,7 @@ def avisos(res, cfg):
             salida.append("Parámetros distintos en cada ventana: nada estable")
     previos = res.get("intentos_previos", 0) or 0
     if previos >= 1:
-        salida.append(f"Van {previos + 1} backtests de esta estrategia y par: cuantas más variantes pruebas, más fácil es que una pase por casualidad")
+        salida.append(f"Van {previos + 1} backtests de esta estrategia y par (familia {res.get('familia') or res.get('estrategia')}, variantes incluidas): cuantas más variantes pruebas, más fácil es que una pase por casualidad")
     return salida
 
 
@@ -829,7 +866,7 @@ def _resumen_de(res):
             "profit_factor": m.get("profit_factor"), "max_drawdown_pct": m.get("max_drawdown_pct"),
             "sharpe_diario": m.get("sharpe_diario"), "p_azar": az.get("p_azar"),
             "veredicto": {"clave": res["oos"]["veredicto"]["clave"], "texto": res["oos"]["veredicto"]["texto"]},
-            "intentos_previos": res.get("intentos_previos", 0)}
+            "intentos_previos": res.get("intentos_previos", 0), "familia": res.get("familia") or res["estrategia"]}
 
 
 def guardar_resultado(res):
@@ -840,7 +877,7 @@ def guardar_resultado(res):
         res["pruebas_total"] = datos["pruebas_total"]
         datos["lista"] = (datos["lista"] + [_resumen_de(res)])[-MAX_INDICE:]
         # per strategy and pair, a counter that survives the 200-entry cap of the list
-        clave = _clave_intentos(res["estrategia"], res["par"])
+        clave = _clave_intentos(res.get("familia") or res["estrategia"], res["par"])
         datos["intentos"][clave] = int(datos["intentos"].get(clave) or 0) + 1
         mercado._escribir_json(_carpeta() / f"{res['id']}.json", res)
         mercado._escribir_json(_ruta_indice(), datos)
@@ -863,7 +900,7 @@ def intentos_previos(estrategia_id, par):
     contador = datos["intentos"].get(_clave_intentos(estrategia_id, par))
     if contador is not None:
         return int(contador)
-    return sum(1 for x in datos["lista"] if x.get("estrategia") == estrategia_id and x.get("par") == par)
+    return sum(1 for x in datos["lista"] if (x.get("familia") or x.get("estrategia")) == estrategia_id and x.get("par") == par)
 
 
 def resultado(id):
@@ -877,6 +914,28 @@ def resultado(id):
 
 
 # ---------- the orchestrator (§6.13) ----------
+
+def pares_backtest(cfg=None):
+    """Markets a backtest may run on: the Kraken pairs of config.yaml (pares) plus the Yahoo markets of
+    mercados_backtest (SPX500, IBEX35, OROUSD...), which are history-only and never traded or watched."""
+    salida = list(mercado.configuracion(cfg)["pares"])
+    try:
+        from sala import yahoo
+        salida += [p for p in yahoo.pares(cfg) if p not in salida]
+    except Exception:
+        pass
+    return salida
+
+
+def nombre_mercado(par):
+    """'XBTEUR' -> 'BTC/EUR'; a Yahoo market code (SPX500) -> its name in mercados_backtest (S&P 500)."""
+    try:
+        from sala import yahoo
+        n = yahoo.nombre(par)
+    except Exception:   # a broken config must not stop a crypto backtest
+        n = None
+    return n or mercado.nombre_par(par)
+
 
 def _tz():
     nombres = [x for x in time.tzname if x]
@@ -895,13 +954,13 @@ def _intervalo_origen(historico, par, marco, desde_t=None, hasta_t=None):
 def correr(estrategia, par, desde=None, hasta=None, avisar=print, cfg=None, ahora=None, semillas=None):
     """Carga el histórico, corre el walk-forward, las referencias, el azar, las puertas y guarda el resultado."""
     from sala import historico
-    cfg = _cfg(cfg)
+    cfg = costes_par(_cfg(cfg), par)
     ahora = int(ahora if ahora is not None else time.time())
     est = estrategias.REGISTRO.get(estrategia) if isinstance(estrategia, str) else estrategia
     if est is None:
         raise ValueError(f"Estrategia desconocida: {estrategia}")
     marco = int(est.marco)
-    nombre = mercado.nombre_par(par)
+    nombre = nombre_mercado(par)
     rango = historico.rango_disponible(par, marco)
     if not rango:   # with or without dates: nothing to simulate, nothing to save
         raise ValueError(f"No hay histórico de {nombre}: ejecuta python app.py historico en el PC")
@@ -934,7 +993,7 @@ def correr(estrategia, par, desde=None, hasta=None, avisar=print, cfg=None, ahor
            + (f" de {origen} min y remuestreando a {marco} min…" if origen and origen != marco else f" de {marco} min…"))
     velas = historico.cargar(par, desde_t - (est.calentamiento + 10) * marco * 60, hasta_t, marco)
     utiles = [v for v in velas if desde_t <= v[0] < hasta_t]
-    lista_v = ventanas(desde_t, hasta_t, cfg["ventana_is_dias"], cfg["ventana_oos_dias"], cfg["oos_min_dias"])
+    lista_v = ventanas(desde_t, hasta_t, *ventanas_cfg(cfg, marco))
     huecos_largos = historico.huecos(utiles, marco, cfg["hueco_max_dias"] * 86400) if utiles else []
     avisar(f"{len(utiles)} velas de {marco} min entre {desde_txt} y {hasta_txt}; {len(lista_v)} ventanas fuera de muestra")
 
@@ -947,7 +1006,8 @@ def correr(estrategia, par, desde=None, hasta=None, avisar=print, cfg=None, ahor
     elif len(utiles) < BARRAS_MINIMAS:
         motivo = f"hay menos de {BARRAS_MINIMAS} barras tras el calentamiento ({len(utiles)})"
     suficiente = not motivo
-    previos = intentos_previos(est.id, par)
+    familia = estrategias.familia(est)
+    previos = intentos_previos(familia, par)
     capital = float(cfg["capital_inicial"])
 
     if suficiente:
@@ -981,7 +1041,7 @@ def correr(estrategia, par, desde=None, hasta=None, avisar=print, cfg=None, ahor
 
     res = {
         "version": 1, "id": time.strftime("%Y%m%d-%H%M%S", time.localtime(ahora)) + f"-{est.id}-{par}", "ts": ahora,
-        "fecha": _fecha(ahora), "estrategia": est.id, "titulo": est.titulo, "par": par, "nombre_par": nombre, "marco": marco,
+        "fecha": _fecha(ahora), "estrategia": est.id, "familia": familia, "titulo": est.titulo, "par": par, "nombre_par": nombre, "marco": marco,
         "desde": desde_txt, "hasta": hasta_txt, "desde_t": desde_t, "hasta_t": hasta_t, "dia": cfg["dia"], "tz": _tz(),
         "cfg": cfg,
         "datos": {"barras": len(utiles), "intervalo_origen": origen, "remuestreado": bool(origen and origen != marco),

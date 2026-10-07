@@ -351,7 +351,7 @@ def crear_panel(vigia=True, bot=None):
         from sala import backtest as backtest_mod, estrategias, historico
         indice = backtest_mod.indice(50)
         return render_template("backtest.html", estrategias=estrategias.lista(), pares=mercado.configuracion()["pares"],
-                               historico=historico.resumen(), indice=indice,
+                               pares_bt=backtest_mod.pares_backtest(), historico=historico.resumen(), indice=indice,
                                ultimo=backtest_mod.resultado(indice[0]["id"]) if indice else None,
                                trabajo=trabajos.get("backtest"), trabajo_hist=trabajos.get("historico"), ocupado=_ocupado(),
                                pruebas_total=backtest_mod.pruebas_total(), aviso=backtest_mod.AVISO_HONESTO,
@@ -359,12 +359,12 @@ def crear_panel(vigia=True, bot=None):
 
     @app.post("/backtest")
     def encargar_backtest():
-        from sala import estrategias
+        from sala import backtest as backtest_mod, estrategias
         f = request.form
         estrategia, par = f.get("estrategia", ""), f.get("par", "")
         if estrategia not in estrategias.REGISTRO:
             abort(404)
-        if par not in mercado.configuracion()["pares"]:
+        if par not in backtest_mod.pares_backtest():
             abort(404)
         desde, hasta = f.get("desde", "").strip(), f.get("hasta", "").strip()
         try:

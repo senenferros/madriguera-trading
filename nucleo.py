@@ -95,6 +95,8 @@ COMENTARIOS_CONFIG = {   # the section comments config.yaml ships with; yaml.saf
     "historico": "# Histórico de Kraken: python app.py historico",
     "mercados_extra": "# Portada fácil: mercados tradicionales de Stooq (solo mirar). clave, nombre, simbolo, moneda, tipo",
     "backtest": "# Backtest: comisión taker de Kraken Pro 0,40 % (maker 0,25); cámbiala si operas con limitadas",
+    "mercados_backtest": "# Backtest de bolsa: histórico diario largo de Yahoo Finance (python app.py historico yahoo). Solo para backtest, no se opera",
+    "costes": "# Costes por mercado (% por lado). Sin entrada: los de backtest (Kraken taker 0,40 %). Bolsa: bróker barato de la UE",
 }
 
 
