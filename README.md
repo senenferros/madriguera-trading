@@ -12,14 +12,14 @@ Es un proyecto independiente, extraído del departamento de mercados que vivía 
 - **Calendario macro**: una semilla con las reuniones de la Fed y del BCE (`datos/calendario_semilla.json`, va en el repositorio) que el documentalista amplía con Claude Code y búsqueda web cuando se lo encargas desde el panel. Si no tienes el comando `claude`, el panel lo dice y el calendario se queda con la semilla y lo que apuntes a mano en `datos/calendario.json`.
 - **Diario de la sala**: notas, ideas y operaciones simuladas, con par, precio y cantidad. No se borra nada. El analista cuantitativo apunta ahí el veredicto de cada backtest.
 - **Histórico de velas** (Fase 1): años de velas de Kraken en `datos/historico/`, a partir de la API pública y de los CSV trimestrales que Kraken publica. Ver «Histórico de velas».
-- **Backtest** (Fase 1): seis estrategias long-only de corto plazo y tres diarias de medio plazo (también en S&P 500, IBEX, oro, plata, Brent y Tesla) probadas con walk-forward y juzgadas solo fuera de muestra, con las cinco reglas de riesgo, comisiones y deslizamiento. Página `Backtest` del panel o `python app.py backtest`. Ver «Backtest (Fase 1)».
+- **Backtest** (Fase 1): seis estrategias long-only de corto plazo y tres diarias de medio plazo (también en índices, empresas, materias primas y cripto de Yahoo: S&P 500, IBEX, Nasdaq 100, Euro Stoxx 50, DAX, oro, plata, Brent, Tesla, Nvidia, Apple, Microsoft, Solana, XRP, BNB, Dogecoin y Cardano) probadas con walk-forward y juzgadas solo fuera de muestra, con las cinco reglas de riesgo, comisiones y deslizamiento. Página `Backtest` del panel o `python app.py backtest`. Ver «Backtest (Fase 1)».
 - **Panel web** en `http://127.0.0.1:5100`, solo accesible desde tu propio PC: la sala, la oficina (rótulo de cotizaciones, tres pantallas con los cierres de hoy, la pizarra con las reglas y las siete personas del equipo), la página de backtest y la página de comprobación.
 
 ## Portada fácil
 
 Al abrir el panel (`http://127.0.0.1:5100/`) lo primero que ves es la **portada fácil**, pensada para quien no sabe nada de bolsa. Arriba, una pregunta con respuesta honesta: **«¿Hay algo que hacer hoy?»**. Mientras ninguna estrategia apruebe el examen del backtest, la respuesta es «No». Si alguna aprueba, lo dice y aclara que lo único que haría es empezar a practicar con dinero ficticio.
 
-Debajo, una tarjeta por mercado con un **semáforo**: S&P 500, IBEX 35, oro, plata, petróleo Brent, Tesla, Bitcoin y Ethereum. El color dice **cómo está el mercado, no lo que tienes que hacer**:
+Debajo, una tarjeta por mercado con un **semáforo**, en cuatro grupos: **Bolsa** (S&P 500, IBEX 35, Nasdaq 100, Euro Stoxx 50, DAX), **Empresas** (Tesla, Nvidia, Apple, Microsoft), **Materias primas** (oro, plata, petróleo Brent) y **Criptomonedas** (Solana, XRP, BNB, Dogecoin y Cardano desde Yahoo; Bitcoin y Ethereum desde Kraken). Son 19 tarjetas; el grupo sale del campo `tipo` de `config.yaml → mercados_extra`. El color dice **cómo está el mercado, no lo que tienes que hacer**:
 
 - **Verde**: sube con calma (por encima de su media de 200 días, que va hacia arriba; a menos de un 10 % de su máximo del año; menos de un 2,5 % de movimiento diario de media).
 - **Amarillo**: se mueve mucho o va sin rumbo.
@@ -122,7 +122,7 @@ Cada resultado queda en `datos/backtests/<id>.json` (parámetros por ventana, op
 
 El mismo walk-forward honrado (las cinco reglas de riesgo y las siete puertas, juzgado solo fuera de muestra) juzga también estrategias de **medio plazo (días a semanas) sobre velas diarias**, en los mercados tradicionales y en BTC/ETH.
 
-**Datos.** `python app.py historico yahoo` baja de Yahoo Finance todas las velas diarias que haya (apertura, máximo, mínimo, cierre y volumen; decenas de años en el S&P 500 y el IBEX, desde 2000 en oro y plata, desde 2007 en Brent, desde 2010 en Tesla) y las guarda en `datos/historico/<CÓDIGO>/1440m/` como velas de 1440 min (fuente «yahoo»), al lado de las de Kraken. Los mercados están en `config.yaml → mercados_backtest`, con un código de par válido para el histórico: `SPX500` (S&P 500), `IBEX35`, `OROUSD` (oro), `PLATAUSD` (plata), `BRENTUSD` (Brent) y `TSLAUSD` (Tesla). Son solo para backtest: el vigía no los mira y nada se opera. La portada fácil sigue con sus 420 cierres de `datos/bolsa/`. Para BTC y ETH diarios con años de datos hace falta el CSV de Kraken importado (ver «Histórico»); la API solo da 720 días.
+**Datos.** `python app.py historico yahoo` baja de Yahoo Finance todas las velas diarias que haya (apertura, máximo, mínimo, cierre y volumen; decenas de años en el S&P 500 y el IBEX, desde 2000 en oro y plata, desde 2007 en Brent, desde 2010 en Tesla) y las guarda en `datos/historico/<CÓDIGO>/1440m/` como velas de 1440 min (fuente «yahoo»), al lado de las de Kraken. Los mercados están en `config.yaml → mercados_backtest`, con un código de par válido para el histórico: `SPX500` (S&P 500), `IBEX35`, `OROUSD` (oro), `PLATAUSD` (plata), `BRENTUSD` (Brent), `TSLAUSD` (Tesla), `NDX100` (Nasdaq 100), `STOXX50` (Euro Stoxx 50), `DAX40EUR` (DAX), `NVDAUSD` (Nvidia), `AAPLUSD` (Apple), `MSFTUSD` (Microsoft), y las cripto de Yahoo en euros `SOLEURY` (Solana), `XRPEURY` (XRP), `BNBEURY` (BNB), `DOGEEURY` (Dogecoin) y `ADAEURY` (Cardano). Índices y empresas pagan los costes de bolsa (0,10 %); las cripto de Yahoo, los de cripto del backtest (0,40 %). Son solo para backtest: el vigía no los mira y nada se opera. La portada fácil sigue con sus 420 cierres de `datos/bolsa/`. Para BTC y ETH diarios con años de datos hace falta el CSV de Kraken importado (ver «Histórico»); la API solo da 720 días.
 
 **Costes por mercado** (`config.yaml → costes`, % por lado): en bolsa, con un bróker barato de la UE, **0,10 % de comisión + 0,05 % de deslizamiento** (0,10 % en stops); cripto sigue con la sección `backtest` (0,40 % taker de Kraken). Un mercado sin entrada en `costes` usa los de `backtest`. Antes de creerte un PASA, repite con tu tarifa real y con el doble de deslizamiento.
 
@@ -136,7 +136,7 @@ Los intentos se cuentan **por familia y mercado**: `donchian_dia` en el S&P 500 
 
 **Ventanas en diario: 2 años dentro de muestra / 6 meses fuera** (avanzando 6 meses; la última fuera de muestra vale si tiene al menos 90 días). Con 180/60 días, una estrategia diaria hace de 0 a 3 operaciones por ventana dentro de muestra: no hay con qué elegir parámetros y casi todas las ventanas caerían en «por defecto». Con 2 años hay de 4 a 20 operaciones por combinación (el mínimo para elegir es 4 en `donchian_dia`, 3 en `rebote_minimo`, 1 en `cruce_medias_dia`), y con 6 meses fuera la consistencia (puerta 6) se mide en tramos con alguna operación. Para 4 ventanas hacen falta 4 años de datos. Las siete puertas no cambian: más de 100 operaciones fuera de muestra (en diario eso pide muchos años: el S&P 500 y el IBEX los tienen, Tesla y Brent quizá no), y la puerta 7 permite como mucho un apagado del −12 % por cada 3 años fuera de muestra, con el drawdown < 20 %. Se cambian en `config.yaml → backtest.ventana_is_dias_diario`, `ventana_oos_dias_diario` y `oos_min_dias_diario`; cambiar la ventana después de ver un resultado es otro intento.
 
-**Qué ejecutar en tu PC** (copia esto en un `backtest_bolsa.bat` dentro de la carpeta del proyecto y haz doble clic; tarda de 10 a 40 minutos y deja todo en `datos\backtest_bolsa.log`):
+**Qué ejecutar en tu PC** (copia esto en un `backtest_bolsa.bat` dentro de la carpeta del proyecto y haz doble clic; tarda de 30 minutos a 2 horas y deja todo en `datos\backtest_bolsa.log`):
 
 ```
 @echo off
@@ -144,7 +144,7 @@ cd /d %~dp0
 .venv\Scripts\python.exe app.py historico yahoo
 .venv\Scripts\python.exe app.py historico
 for %%E in (donchian_dia cruce_medias_dia rebote_minimo) do (
-  for %%P in (SPX500 IBEX35 OROUSD PLATAUSD BRENTUSD TSLAUSD XBTEUR ETHEUR) do (
+  for %%P in (SPX500 IBEX35 NDX100 STOXX50 DAX40EUR OROUSD PLATAUSD BRENTUSD TSLAUSD NVDAUSD AAPLUSD MSFTUSD SOLEURY XRPEURY BNBEURY DOGEEURY ADAEURY XBTEUR ETHEUR) do (
     echo ===== %%E %%P =====>> datos\backtest_bolsa.log
     .venv\Scripts\python.exe app.py backtest %%E --par %%P >> datos\backtest_bolsa.log 2>&1
   )
@@ -152,7 +152,7 @@ for %%E in (donchian_dia cruce_medias_dia rebote_minimo) do (
 pause
 ```
 
-Son 24 backtests: 24 intentos más. Con 24 pruebas sin ninguna ventaja real, lo esperable es que **alguna pase por puro azar**; un PASA aislado en un solo mercado no vale nada. Créetelo solo si la misma estrategia pasa en varios mercados parecidos (los dos índices, o oro y plata) y sobrevive al doble de deslizamiento.
+Son 57 backtests (3 estrategias × 19 mercados): 57 intentos más. Con 57 pruebas sin ninguna ventaja real, lo esperable es que **alguna pase por puro azar**; un PASA aislado en un solo mercado no vale nada. Créetelo solo si la misma estrategia pasa en varios mercados parecidos (varios índices, o oro y plata) y sobrevive al doble de deslizamiento.
 
 ## Cómo arrancarlo en Windows
 

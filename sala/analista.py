@@ -142,10 +142,11 @@ def prompt(paq, noticias=False):
         "escribe para el dueño, que no sabe nada de trading. Trabajáis juntos y entregáis un solo texto.\n\n"
         "REGLAS:\n" + "\n".join(f"- {r}" for r in reglas) + "\n\n"
         "QUÉ ENTREGAR:\n"
-        "- Por cada mercado del paquete (misma «clave»): «resumen» (2 frases sencillas), «que_vigilar» (1 frase), "
-        "«riesgo» con «nivel» bajo/medio/alto y «motivo» (1 frase), y «datos_usados» (los nombres de los campos del "
+        "- Por cada mercado del paquete (misma «clave»): «resumen» (1 o 2 frases cortas, nunca más de 2), «que_vigilar» (1 frase corta), "
+        "«riesgo» con «nivel» bajo/medio/alto y «motivo» (1 frase corta), y «datos_usados» (los nombres de los campos del "
         f"paquete que has citado, p. ej. {list(CAMPOS[:3])}).\n"
-        "- Global: «titular» (una línea), «resumen_general» (3 o 4 frases sencillas) y «aviso» (recordando que no es un consejo "
+        "- Son muchos mercados: sé breve y no repitas lo mismo en cada uno.\n"
+        "- Global: «titular» (una línea), «resumen_general» (2 o 3 frases sencillas) y «aviso» (recordando que no es un consejo "
         "y que es simulación).\n"
         f"- Los datos llegan hasta el {paq['t_corte']} (fecha de corte); no hables de nada posterior.\n\n"
         "PAQUETE DE DATOS (JSON):\n" + json.dumps(paq, ensure_ascii=False, indent=1)
@@ -347,7 +348,7 @@ def hacer(avisar=print, preguntar=None, cfg=None, ahora=None, paq=None):
     paq = paq or paquete(hoy=date.fromtimestamp(ahora))
     avisar(f"Mesa de análisis: leyendo {len(paq['mercados'])} mercados (datos hasta el {paq['t_corte']})…")
     herramientas = ["WebSearch"] if conf["noticias"] else None
-    respuesta, coste = preguntar(prompt(paq, conf["noticias"]), esquema(conf["noticias"]), herramientas, 900)
+    respuesta, coste = preguntar(prompt(paq, conf["noticias"]), esquema(conf["noticias"]), herramientas, 1800)
     titular, general, aviso, mercados, correcciones = validar(respuesta, paq)
     for c in correcciones:
         avisar("Corregido: " + c)

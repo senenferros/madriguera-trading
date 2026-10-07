@@ -58,13 +58,13 @@ for m in bolsa.mercados():
 print("Paquete")
 paq = analista.paquete(eventos=[{"fecha": "2026-10-10", "hora": "14:30", "evento": "IPC de EEUU", "fuente": "x"}])
 claves = [m["clave"] for m in paq["mercados"]]
-ok(claves == ["sp500", "ibex35", "oro", "plata", "brent", "tesla", "btc", "eth"], "ocho mercados en orden")
+ok(claves == ["sp500", "ibex35", "oro", "plata", "brent", "tesla"] + ["nasdaq100", "eurostoxx50", "dax", "nvidia", "apple", "microsoft", "solana", "xrp", "bnb", "dogecoin", "cardano"] + ["btc", "eth"], "diecinueve mercados en orden")
 sp = paq["mercados"][0]
 ok(paq["t_corte"] == "2026-10-02" and sp["fecha"] == "2026-10-02", "t_corte = último cierre que tiene la sala")
 ok(all(k in sp for k in analista.CAMPOS), "cada mercado lleva todos los campos")
 ok(abs(sp["ultimo_cierre"] - round(100 * 1.001 ** 399, 2)) < 1e-9 and sp["semaforo"] == "verde", "último cierre y semáforo")
 ok("por encima" in sp["tendencia_200_dias"] and "sube" in sp["tendencia_200_dias"], "tendencia de 200 días en palabras")
-btc = paq["mercados"][6]
+btc = paq["mercados"][17]
 ok(btc["ultimo_cierre"] == analista.NO and btc["semaforo"] == "gris", "sin datos -> NO DISPONIBLE")
 ok("titulo" in paq["estrategias"] and paq["calendario"][0]["evento"] == "IPC de EEUU" and "fuente" not in paq["calendario"][0],
    "banner del backtest y calendario macro en el paquete")
@@ -160,7 +160,7 @@ for texto in ("Hay que VENDER.", "comprar", "Te lo garantizamos.", "Es seguro qu
     ok(analista._RE_PROHIBIDO.search(analista.limpiar_consejos(texto)[0]) is None, f"limpiar_consejos({texto!r})")
 ok(analista.limpiar_consejos("Sube con calma. Baja poco.") == ("Sube con calma. Baja poco.", 0), "texto limpio no se toca")
 vacia = analista.validar({}, paq)
-ok(len(vacia[3]) == 8 and all(i["corregido"] for i in vacia[3].values()) and vacia[2] == analista.AVISO, "respuesta vacía -> solo datos")
+ok(len(vacia[3]) == 19 and all(i["corregido"] for i in vacia[3].values()) and vacia[2] == analista.AVISO, "respuesta vacía -> solo datos")
 ok(len(analista.validar({"titular": "Sube 99 %", "resumen_general": "x", "mercados": []}, paq)[4]) > 8, "titular con número inventado corregido")
 
 _r = respuesta_buena(); _r["aviso"] = "Esto no es un consejo para comprar o vender. Es simulación."
@@ -206,7 +206,7 @@ ok("Bolsas y metales suben" not in html, "(el guardado de hoy es el corregido)")
 analista.hacer(avisar=lambda m: None, preguntar=falso(respuesta_buena()), paq=paq)
 html = c.get("/", base_url=BASE).get_data(as_text=True)
 ok("Bolsas y metales suben con calma" in html and "datos hasta el 2026-10-02" in html, "titular, resumen y hora en la portada")
-ok(html.count("Qué vigilar:") == 8 and 'class="riesgo bajo"' in html and "Ha cerrado en" in html, "en cada tarjeta: resumen, qué vigilar y riesgo")
+ok(html.count("Qué vigilar:") == 19 and 'class="riesgo bajo"' in html and "Ha cerrado en" in html, "en cada tarjeta: resumen, qué vigilar y riesgo")
 ok("Hacer el análisis de hoy" not in html, "con el de hoy hecho no hay botón")
 csrf = app.config["CSRF_TOKEN"]
 ok(c.post("/analisis", base_url=BASE, data={}).status_code == 403, "POST /analisis sin CSRF -> 403")

@@ -46,7 +46,9 @@ DEFECTOS = {
 # Per-market costs (% per side). Crypto keeps the backtest section (Kraken taker 0.40 %); the traditional markets
 # assume a cheap EU broker / CFD-free spot ETF: 0.10 % commission + 0.05 % slippage (0.10 % on stops).
 COSTE_BOLSA = {"comision_pct": 0.10, "deslizamiento_pct": 0.05, "deslizamiento_stop_pct": 0.10}
-COSTES_DEFECTO = {p: dict(COSTE_BOLSA) for p in ("SPX500", "IBEX35", "OROUSD", "PLATAUSD", "BRENTUSD", "TSLAUSD")}
+COSTES_DEFECTO = {p: dict(COSTE_BOLSA) for p in ("SPX500", "IBEX35", "OROUSD", "PLATAUSD", "BRENTUSD", "TSLAUSD",
+                                                       "NDX100", "STOXX50", "DAX40EUR", "NVDAUSD", "AAPLUSD", "MSFTUSD")}
+# Yahoo crypto (SOLEURY, XRPEURY...) has no entry on purpose: it pays the crypto costs of the backtest section
 _CLAVES_COSTE = ("comision_pct", "deslizamiento_pct", "deslizamiento_stop_pct")
 PUERTAS_DEFECTO = {"expectativa_min": 0, "profit_factor_min": 1.3, "drawdown_max_pct": 20, "operaciones_min": 100,
                    "p_azar_max": 0.05, "consistencia_min": 0.5}

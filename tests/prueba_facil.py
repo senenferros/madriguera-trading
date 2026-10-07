@@ -84,10 +84,13 @@ except ValueError:
     ok(True, "yahoo_a_csv sin datos -> ValueError")
 
 print("Stooq: caché")
-ok([m["clave"] for m in bolsa.mercados()] == ["sp500", "ibex35", "oro", "plata", "brent", "tesla"], "seis mercados por defecto")
+ok([m["clave"] for m in bolsa.mercados()] == ["sp500", "ibex35", "oro", "plata", "brent", "tesla"] + ["nasdaq100", "eurostoxx50", "dax", "nvidia", "apple", "microsoft", "solana", "xrp", "bnb", "dogecoin", "cardano"], "diecisiete mercados por defecto")
+ok(all(bolsa.EXPLICACIONES.get(m["clave"]) for m in bolsa.mercados()), "cada mercado con su «¿Qué significa?» propio")
 ok(bolsa.mercados({"mercados_extra": [{"clave": "dax", "nombre": "DAX", "simbolo": "^dax"}, {"clave": "../x", "simbolo": "y"}]})
    == [{"clave": "dax", "nombre": "DAX", "simbolo": "^dax", "moneda": "USD", "tipo": "indice"}], "mercados_extra de config.yaml, con claves validadas")
-SERIES = {"^GSPC": SUBE, "^IBEX": LADO, "GC=F": SUBE, "SI=F": MOVIDA, "BZ=F": GOTEO, "TSLA": DESPLOME}
+SERIES = {"^GSPC": SUBE, "^IBEX": LADO, "GC=F": SUBE, "SI=F": MOVIDA, "BZ=F": GOTEO, "TSLA": DESPLOME,
+          "^NDX": SUBE, "^STOXX50E": LADO, "^GDAXI": SUBE, "NVDA": MOVIDA, "AAPL": SUBE, "MSFT": LADO,
+          "SOL-EUR": MOVIDA, "XRP-EUR": DESPLOME, "BNB-EUR": LADO, "DOGE-EUR": MOVIDA, "ADA-EUR": GOTEO}
 llamadas = []
 
 
@@ -99,7 +102,7 @@ def stooq_falso(simbolo):
 bolsa.descargar_fn = stooq_falso
 T = time.time()
 res = bolsa.actualizar(avisar=lambda m: None, ahora=T)
-ok(all(v == "nuevo" for v in res.values()) and len(llamadas) == 6, "primera descarga: seis mercados")
+ok(all(v == "nuevo" for v in res.values()) and len(llamadas) == 17, "primera descarga: diecisiete mercados")
 ok((nucleo.DATOS_DIR / "bolsa" / "oro.json").is_file() and len(bolsa.cache("oro")["filas"]) == 400, "caché en datos/bolsa/<clave>.json")
 llamadas.clear()
 res = bolsa.actualizar(avisar=lambda m: None, ahora=T + 3600)
@@ -182,8 +185,14 @@ BASE = "http://127.0.0.1:5100"
 r = c.get("/", base_url=BASE)
 html = r.get_data(as_text=True)
 ok(r.status_code == 200, "GET / -> 200")
-nombres = ["S&amp;P 500", "IBEX 35", "Oro", "Plata", "Petróleo Brent", "Tesla", "Bitcoin (BTC)", "Ethereum (ETH)"]
-ok(all(n in html for n in nombres), "GET / muestra los seis mercados y BTC/ETH")
+nombres = ["S&amp;P 500", "IBEX 35", "Oro", "Plata", "Petróleo Brent", "Tesla", "Bitcoin (BTC)", "Ethereum (ETH)",
+           "Nasdaq 100", "Euro Stoxx 50", "DAX", "Nvidia", "Apple", "Microsoft", "Solana (SOL)", "XRP", "BNB", "Dogecoin (DOGE)", "Cardano (ADA)"]
+ok(all(n in html for n in nombres) and html.count('class="tarjeta"') == 19, "GET / muestra los diecisiete mercados y BTC/ETH")
+pos = [html.find(f'data-grupo="{g}"') for g in ("Bolsa", "Empresas", "Materias primas", "Criptomonedas")]
+ok(all(p > 0 for p in pos) and pos == sorted(pos) and 'data-grupo="Otros"' not in html, "GET / agrupa en Bolsa, Empresas, Materias primas y Criptomonedas")
+cripto = html[pos[3]:]
+ok(all(f'data-clave="{k}"' in cripto for k in ("btc", "eth", "solana", "dogecoin")) and 'data-clave="tesla"' not in cripto
+   and 'data-clave="nvidia"' in html[pos[1]:pos[2]], "cada tarjeta en su grupo")
 ok("¿Hay algo que hacer hoy? No." in html and "Modo experto" in html and "¿Qué significa?" in html, "GET / con banner, «Modo experto» y «¿Qué significa?»")
 ok(html.count('class="luz ') >= 12 and "20 %" in html and "2,5 %" in html, "GET / con luces y los umbrales explicados")
 r = c.get("/sala", base_url=BASE)

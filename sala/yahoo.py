@@ -28,6 +28,17 @@ MERCADOS_DEFECTO = [
     {"par": "PLATAUSD", "nombre": "Plata", "simbolo": "SI=F", "moneda": "USD"},
     {"par": "BRENTUSD", "nombre": "Petróleo Brent", "simbolo": "BZ=F", "moneda": "USD"},
     {"par": "TSLAUSD", "nombre": "Tesla", "simbolo": "TSLA", "moneda": "USD"},
+    {"par": "NDX100", "nombre": "Nasdaq 100", "simbolo": "^NDX", "moneda": "USD"},
+    {"par": "STOXX50", "nombre": "Euro Stoxx 50", "simbolo": "^STOXX50E", "moneda": "EUR"},
+    {"par": "DAX40EUR", "nombre": "DAX", "simbolo": "^GDAXI", "moneda": "EUR"},
+    {"par": "NVDAUSD", "nombre": "Nvidia", "simbolo": "NVDA", "moneda": "USD"},
+    {"par": "AAPLUSD", "nombre": "Apple", "simbolo": "AAPL", "moneda": "USD"},
+    {"par": "MSFTUSD", "nombre": "Microsoft", "simbolo": "MSFT", "moneda": "USD"},
+    {"par": "SOLEURY", "nombre": "Solana (SOL)", "simbolo": "SOL-EUR", "moneda": "EUR"},
+    {"par": "XRPEURY", "nombre": "XRP", "simbolo": "XRP-EUR", "moneda": "EUR"},
+    {"par": "BNBEURY", "nombre": "BNB", "simbolo": "BNB-EUR", "moneda": "EUR"},
+    {"par": "DOGEEURY", "nombre": "Dogecoin (DOGE)", "simbolo": "DOGE-EUR", "moneda": "EUR"},
+    {"par": "ADAEURY", "nombre": "Cardano (ADA)", "simbolo": "ADA-EUR", "moneda": "EUR"},
 ]
 
 # Patched by the tests: simbolo -> Yahoo chart JSON (dict), instead of the network

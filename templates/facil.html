@@ -21,6 +21,9 @@
   .barra button { font-size: 17px; padding: 12px 22px; }
   .barra .estado { color: var(--suave); }
   .rejilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
+  .grupo { margin: 0 0 26px; }
+  .grupo-titulo { font-size: 24px; margin: 0 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--borde); }
+  .grupo-titulo .cuenta { font-size: 16px; color: var(--suave); font-weight: 400; }
   .tarjeta { background: linear-gradient(180deg, var(--panel2), var(--panel)); border: 1px solid var(--borde); border-radius: 18px; padding: 20px; box-shadow: var(--sombra); display: flex; flex-direction: column; gap: 10px; }
   .tarjeta .cabeza { display: flex; align-items: center; gap: 16px; }
   .tarjeta h2 { font-size: 22px; margin: 0; }
@@ -83,8 +86,16 @@
 
 <p class="sub">Un semáforo por mercado. El color describe cómo está el mercado; no es una orden de comprar ni de vender.</p>
 
+{% set grupos = [("Bolsa", ["indice"]), ("Empresas", ["accion"]), ("Materias primas", ["metal", "materia_prima"]), ("Criptomonedas", ["cripto"])] %}
+{% set conocidos = ["indice", "accion", "metal", "materia_prima", "cripto"] %}
+{% set otros = tarjetas | rejectattr("tipo", "in", conocidos) | list %}
+{% for titulo_grupo, tipos in grupos + ([("Otros", [])] if otros else []) %}
+{% set del_grupo = (tarjetas | selectattr("tipo", "in", tipos) | list) if tipos else otros %}
+{% if del_grupo %}
+<section class="grupo" data-grupo="{{ titulo_grupo }}">
+<h2 class="grupo-titulo">{{ titulo_grupo }} <span class="cuenta">· {{ del_grupo | length }}</span></h2>
 <div class="rejilla">
-{% for t in tarjetas %}
+{% for t in del_grupo %}
   <article class="tarjeta" data-clave="{{ t.clave }}">
     <div class="cabeza"><span class="luz {{ t.color }}" role="img" aria-label="Semáforo {{ t.color }}"></span><h2>{{ t.nombre }}</h2></div>
     <p class="titular">{{ t.titular }}</p>
@@ -104,6 +115,9 @@
   </article>
 {% endfor %}
 </div>
+</section>
+{% endif %}
+{% endfor %}
 
 <section class="caja leyenda">
   <h2>Qué quiere decir cada color</h2>

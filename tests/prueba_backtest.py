@@ -1534,8 +1534,10 @@ def prueba_bolsa_diaria():
     ok("yahoo" in (r.get("fuentes") or []) and historico.rango_disponible("SPX500", 1440) == (serie[0][0], serie[-1][0] + 86400),
        "historico: SPX500 1440 min con fuente yahoo y rango_disponible")
     ok(historico.cargar("SPX500", serie[0][0], serie[-1][0] + 86400, 1440) == serie, "historico.cargar devuelve las velas diarias tal cual")
-    ok(set(yahoo.pares({})) == {"SPX500", "IBEX35", "OROUSD", "PLATAUSD", "BRENTUSD", "TSLAUSD"} and all(len(p) >= 6 for p in yahoo.pares({})),
-       "yahoo: seis códigos de mercado válidos para historico")
+    ok(set(yahoo.pares({})) == {"SPX500", "IBEX35", "OROUSD", "PLATAUSD", "BRENTUSD", "TSLAUSD",
+                                  "NDX100", "STOXX50", "DAX40EUR", "NVDAUSD", "AAPLUSD", "MSFTUSD",
+                                  "SOLEURY", "XRPEURY", "BNBEURY", "DOGEEURY", "ADAEURY"} and all(len(p) >= 6 for p in yahoo.pares({})),
+       "yahoo: diecisiete códigos de mercado válidos para historico")
     ok("SPX500" in backtest.pares_backtest({"pares": ["XBTEUR"]}) and "XBTEUR" in backtest.pares_backtest({"pares": ["XBTEUR"]}), "pares_backtest: Kraken + Yahoo")
     ok(backtest.nombre_mercado("SPX500") == "S&P 500" and backtest.nombre_mercado("XBTEUR") == "BTC/EUR", "nombre_mercado")
 
@@ -1545,6 +1547,12 @@ def prueba_bolsa_diaria():
        "costes: bolsa por defecto 0,10 % + 0,05 %")
     ok(backtest.costes_par(c, "XBTEUR")["comision_pct"] == 0.4 and backtest.costes_par(c, "TSLAUSD")["comision_pct"] == 0.2
        and backtest.costes_par(c, "TSLAUSD")["deslizamiento_pct"] == 0.05, "costes: cripto se queda en 0,40 %; una entrada propia manda")
+    ok(all(backtest.costes_par(c, p)["comision_pct"] == 0.1 for p in ("NDX100", "STOXX50", "DAX40EUR", "NVDAUSD", "AAPLUSD", "MSFTUSD"))
+       and all(backtest.costes_par(c, p)["comision_pct"] == 0.4 for p in ("SOLEURY", "XRPEURY", "BNBEURY", "DOGEEURY", "ADAEURY")),
+       "costes: índices y empresas nuevos a 0,10 %; cripto de Yahoo a 0,40 %")
+    cr = backtest.configuracion(nucleo.cargar_config()) if hasattr(nucleo, "cargar_config") else None
+    ok(cr is None or (backtest.costes_par(cr, "SOLEURY")["comision_pct"] == cr["comision_pct"] and backtest.costes_par(cr, "DAX40EUR")["comision_pct"] == 0.1),
+       "costes: config.yaml real sin costes de bolsa para las cripto de Yahoo")
     guion = fija({60: {"accion": "comprar", "stop": 90.0}, 70: {"accion": "vender", "motivo": "senal"}}, marco=1440)
     plano = [[T_2012 + k * 86400, 100.0, 100.5, 99.5, 100.0, 1.0] for k in range(80)]
     caro = backtest.simular(plano, guion, {}, backtest.costes_par(c, "XBTEUR"))["operaciones"][0]

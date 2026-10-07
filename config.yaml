@@ -69,6 +69,17 @@ mercados_extra:
 - {clave: plata, nombre: Plata, simbolo: 'SI=F', moneda: USD, tipo: metal}
 - {clave: brent, nombre: Petróleo Brent, simbolo: 'BZ=F', moneda: USD, tipo: materia_prima}
 - {clave: tesla, nombre: Tesla, simbolo: 'TSLA', moneda: USD, tipo: accion}
+- {clave: nasdaq100, nombre: Nasdaq 100, simbolo: '^NDX', moneda: USD, tipo: indice}
+- {clave: eurostoxx50, nombre: Euro Stoxx 50, simbolo: '^STOXX50E', moneda: EUR, tipo: indice}
+- {clave: dax, nombre: DAX, simbolo: '^GDAXI', moneda: EUR, tipo: indice}
+- {clave: nvidia, nombre: Nvidia, simbolo: 'NVDA', moneda: USD, tipo: accion}
+- {clave: apple, nombre: Apple, simbolo: 'AAPL', moneda: USD, tipo: accion}
+- {clave: microsoft, nombre: Microsoft, simbolo: 'MSFT', moneda: USD, tipo: accion}
+- {clave: solana, nombre: Solana (SOL), simbolo: 'SOL-EUR', moneda: EUR, tipo: cripto}
+- {clave: xrp, nombre: XRP, simbolo: 'XRP-EUR', moneda: EUR, tipo: cripto}
+- {clave: bnb, nombre: BNB, simbolo: 'BNB-EUR', moneda: EUR, tipo: cripto}
+- {clave: dogecoin, nombre: Dogecoin (DOGE), simbolo: 'DOGE-EUR', moneda: EUR, tipo: cripto}
+- {clave: cardano, nombre: Cardano (ADA), simbolo: 'ADA-EUR', moneda: EUR, tipo: cripto}
 # Backtest de bolsa: histórico diario largo de Yahoo Finance (python app.py historico yahoo). Solo para backtest, no se opera
 mercados_backtest:
 - {par: SPX500, nombre: S&P 500, simbolo: '^GSPC', moneda: USD}
@@ -77,7 +88,18 @@ mercados_backtest:
 - {par: PLATAUSD, nombre: Plata, simbolo: 'SI=F', moneda: USD}
 - {par: BRENTUSD, nombre: Petróleo Brent, simbolo: 'BZ=F', moneda: USD}
 - {par: TSLAUSD, nombre: Tesla, simbolo: 'TSLA', moneda: USD}
-# Costes por mercado (% por lado). Sin entrada: los de backtest (Kraken taker 0,40 %). Bolsa: bróker barato de la UE
+- {par: NDX100, nombre: Nasdaq 100, simbolo: '^NDX', moneda: USD}
+- {par: STOXX50, nombre: Euro Stoxx 50, simbolo: '^STOXX50E', moneda: EUR}
+- {par: DAX40EUR, nombre: DAX, simbolo: '^GDAXI', moneda: EUR}
+- {par: NVDAUSD, nombre: Nvidia, simbolo: 'NVDA', moneda: USD}
+- {par: AAPLUSD, nombre: Apple, simbolo: 'AAPL', moneda: USD}
+- {par: MSFTUSD, nombre: Microsoft, simbolo: 'MSFT', moneda: USD}
+- {par: SOLEURY, nombre: Solana (SOL), simbolo: 'SOL-EUR', moneda: EUR}
+- {par: XRPEURY, nombre: XRP, simbolo: 'XRP-EUR', moneda: EUR}
+- {par: BNBEURY, nombre: BNB, simbolo: 'BNB-EUR', moneda: EUR}
+- {par: DOGEEURY, nombre: Dogecoin (DOGE), simbolo: 'DOGE-EUR', moneda: EUR}
+- {par: ADAEURY, nombre: Cardano (ADA), simbolo: 'ADA-EUR', moneda: EUR}
+# Costes por mercado (% por lado). Sin entrada: los de backtest (Kraken taker 0,40 %). Bolsa: bróker barato de la UE; las cripto de Yahoo (SOLEURY…) usan los de backtest
 costes:
   SPX500: {comision_pct: 0.1, deslizamiento_pct: 0.05, deslizamiento_stop_pct: 0.1}
   IBEX35: {comision_pct: 0.1, deslizamiento_pct: 0.05, deslizamiento_stop_pct: 0.1}
@@ -85,3 +107,9 @@ costes:
   PLATAUSD: {comision_pct: 0.1, deslizamiento_pct: 0.05, deslizamiento_stop_pct: 0.1}
   BRENTUSD: {comision_pct: 0.1, deslizamiento_pct: 0.05, deslizamiento_stop_pct: 0.1}
   TSLAUSD: {comision_pct: 0.1, deslizamiento_pct: 0.05, deslizamiento_stop_pct: 0.1}
+  NDX100: {comision_pct: 0.1, deslizamiento_pct: 0.05, deslizamiento_stop_pct: 0.1}
+  STOXX50: {comision_pct: 0.1, deslizamiento_pct: 0.05, deslizamiento_stop_pct: 0.1}
+  DAX40EUR: {comision_pct: 0.1, deslizamiento_pct: 0.05, deslizamiento_stop_pct: 0.1}
+  NVDAUSD: {comision_pct: 0.1, deslizamiento_pct: 0.05, deslizamiento_stop_pct: 0.1}
+  AAPLUSD: {comision_pct: 0.1, deslizamiento_pct: 0.05, deslizamiento_stop_pct: 0.1}
+  MSFTUSD: {comision_pct: 0.1, deslizamiento_pct: 0.05, deslizamiento_stop_pct: 0.1}
