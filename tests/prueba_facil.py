@@ -74,11 +74,20 @@ for basura in ("No data", "", "<html>error</html>"):
     except ValueError:
         ok(True, f"parsear_csv rechaza {basura!r}")
 
+print("Yahoo: JSON a CSV")
+_y = {"chart": {"result": [{"timestamp": [1759708800, 1759795200, 1759881600], "indicators": {"quote": [{"close": [100.5, None, 102.0]}]}}]}}
+ok(bolsa.parsear_csv(bolsa.yahoo_a_csv(_y)) == [["2025-10-06", 100.5], ["2025-10-08", 102.0]], "yahoo_a_csv: fechas UTC, se salta el cierre vacío")
+try:
+    bolsa.yahoo_a_csv({"chart": {"result": None, "error": {"code": "Not Found"}}})
+    ok(False, "yahoo_a_csv sin datos -> ValueError")
+except ValueError:
+    ok(True, "yahoo_a_csv sin datos -> ValueError")
+
 print("Stooq: caché")
 ok([m["clave"] for m in bolsa.mercados()] == ["sp500", "ibex35", "oro", "plata", "brent", "tesla"], "seis mercados por defecto")
 ok(bolsa.mercados({"mercados_extra": [{"clave": "dax", "nombre": "DAX", "simbolo": "^dax"}, {"clave": "../x", "simbolo": "y"}]})
    == [{"clave": "dax", "nombre": "DAX", "simbolo": "^dax", "moneda": "USD", "tipo": "indice"}], "mercados_extra de config.yaml, con claves validadas")
-SERIES = {"^spx": SUBE, "^ibex": LADO, "xauusd": SUBE, "xagusd": MOVIDA, "cb.f": GOTEO, "tsla.us": DESPLOME}
+SERIES = {"^GSPC": SUBE, "^IBEX": LADO, "GC=F": SUBE, "SI=F": MOVIDA, "BZ=F": GOTEO, "TSLA": DESPLOME}
 llamadas = []
 
 

@@ -26,7 +26,7 @@ Debajo, una tarjeta por mercado con un **semáforo**: S&P 500, IBEX 35, oro, pla
 - **Rojo**: cae fuerte (un 20 % o más por debajo de su máximo del año, o por debajo de su media de 200 días, que baja, y en negativo este mes).
 - **Gris**: aún no hay datos suficientes.
 
-Cada tarjeta enseña el precio, cuánto ha cambiado hoy, este mes y este año, y un «¿Qué significa?» que explica en una línea qué es ese mercado. Los precios de bolsa son diarios y gratuitos, de Stooq (se guardan en `datos/bolsa/` y se descargan como mucho cada 6 horas; si falla la conexión, la tarjeta dice «sin datos nuevos desde …»). Bitcoin y Ethereum salen del histórico de Kraken. El botón **«Actualizar precios»** los refresca. Los mercados se cambian en `config.yaml`, sección `mercados_extra`. Todo lo demás (la sala de siempre) está en **«Modo experto»** (`/sala`).
+Cada tarjeta enseña el precio, cuánto ha cambiado hoy, este mes y este año, y un «¿Qué significa?» que explica en una línea qué es ese mercado. Los precios de bolsa son diarios y gratuitos, de Yahoo Finance (se guardan en `datos/bolsa/` y se descargan como mucho cada 6 horas; si falla la conexión, la tarjeta dice «sin datos nuevos desde …»). Bitcoin y Ethereum salen del histórico de Kraken. El botón **«Actualizar precios»** los refresca. Los mercados se cambian en `config.yaml`, sección `mercados_extra`. Todo lo demás (la sala de siempre) está en **«Modo experto»** (`/sala`).
 
 ## Las fases
 
@@ -137,7 +137,7 @@ Desde una terminal, en la carpeta del proyecto:
 
 Kraken solo es alcanzable desde tu PC: nada del histórico se ha podido probar contra la API real, y la primera ejecución puede descubrir detalles (claves de la respuesta, límites de tasa) que las pruebas sin red no reproducen. Primera tarea: un solo par y leer el registro.
 
-1. `python tests\prueba_backtest.py`, `python tests\prueba.py` y `python tests\prueba_facil.py` (sin red; las tres deben decir «Todo bien.»). Luego `python app.py bolsa` comprueba que Stooq responde desde tu PC.
+1. `python tests\prueba_backtest.py`, `python tests\prueba.py` y `python tests\prueba_facil.py` (sin red; las tres deben decir «Todo bien.»). Luego `python app.py bolsa` comprueba que Yahoo Finance responde desde tu PC.
 2. `python app.py historico --par XBTEUR` (unos 5 minutos de cola OHLC y consolidación; el relleno por Trades de los últimos 90 días tarda 1–1,5 h la primera vez y un minuto al día después). Se puede cortar con Ctrl+C y relanzar.
 3. Recomendado: descarga en el navegador el CSV trimestral OHLCVT de Kraken (artículo 360047124832), descomprímelo y `python app.py historico importar D:\descargas\Kraken_OHLCVT --par XBTEUR --par ETHEUR --desde 2019-01-01` (2–5 minutos por par). Después, `python app.py historico` solo rellena el hueco entre el fin del CSV y hoy.
 4. Alternativa sin CSV: `python app.py historico --dias 730` (una o dos noches por par, reanudable).
@@ -157,13 +157,13 @@ sala/mercado.py            velas, alertas, parte, calendario, diario
 sala/historico.py          histórico de Kraken: OHLC + Trades + CSV, lector de rangos, remuestreo, validación
 sala/estrategias.py        indicadores puros, contrato Estrategia, las seis estrategias
 sala/backtest.py           motor con las cinco reglas, métricas, walk-forward, referencias, azar, puertas, veredicto
-sala/bolsa.py              portada fácil: precios diarios de Stooq, semáforos, aviso honesto
+sala/bolsa.py              portada fácil: precios diarios de Yahoo Finance, semáforos, aviso honesto
 sala/telegram.py           envío de mensajes (sin botones ni escucha)
 sala/claude.py             Claude Code en modo headless, opcional (solo para el calendario)
 sala/equipo.py             las siete personas y las reglas de riesgo
 templates/                 base, facil, sala, oficina, backtest, comprobar
 tests/prueba.py            prueba sin red de la Fase 0: python tests\prueba.py
-tests/prueba_facil.py      prueba sin red de la portada fácil (Stooq falso, caché, colores, aviso, rutas, CLI): python tests\prueba_facil.py
+tests/prueba_facil.py      prueba sin red de la portada fácil (Yahoo Finance falso, caché, colores, aviso, rutas, CLI): python tests\prueba_facil.py
 tests/prueba_backtest.py   prueba sin red de la Fase 1 (histórico, motor, estrategias, veredicto, página, CLI): python tests\prueba_backtest.py
 datos/                     lo que genera la sala (no va al repositorio, salvo la semilla del calendario)
 datos/historico/           <par>/<N>m/<AAAA-MM>.json, estado.json, cursor_trades.json, ocupado.json

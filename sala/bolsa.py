@@ -14,25 +14,26 @@ import statistics
 import threading
 import time
 from datetime import date, datetime, timezone
+from urllib.parse import quote
 
 import requests
 
 import nucleo
 from sala import mercado
 
-STOOQ = "https://stooq.com/q/d/l/?s={simbolo}&i=d"
+YAHOO = "https://query1.finance.yahoo.com/v8/finance/chart/{simbolo}?range=2y&interval=1d"
 REFRESCO_S = 6 * 3600       # a market is downloaded again at most every 6 hours
 FILAS_MAX = 420             # daily closes kept per market (a bit more than the 1-year + 200-day windows need)
 _RE_CLAVE = re.compile(r"^[a-z0-9_]{1,30}$")
 _lock = threading.Lock()
 
 MERCADOS_DEFECTO = [
-    {"clave": "sp500", "nombre": "S&P 500", "simbolo": "^spx", "moneda": "USD", "tipo": "indice"},
-    {"clave": "ibex35", "nombre": "IBEX 35", "simbolo": "^ibex", "moneda": "EUR", "tipo": "indice"},
-    {"clave": "oro", "nombre": "Oro", "simbolo": "xauusd", "moneda": "USD", "tipo": "metal"},
-    {"clave": "plata", "nombre": "Plata", "simbolo": "xagusd", "moneda": "USD", "tipo": "metal"},
-    {"clave": "brent", "nombre": "Petróleo Brent", "simbolo": "cb.f", "moneda": "USD", "tipo": "materia_prima"},
-    {"clave": "tesla", "nombre": "Tesla", "simbolo": "tsla.us", "moneda": "USD", "tipo": "accion"},
+    {"clave": "sp500", "nombre": "S&P 500", "simbolo": "^GSPC", "moneda": "USD", "tipo": "indice"},
+    {"clave": "ibex35", "nombre": "IBEX 35", "simbolo": "^IBEX", "moneda": "EUR", "tipo": "indice"},
+    {"clave": "oro", "nombre": "Oro", "simbolo": "GC=F", "moneda": "USD", "tipo": "metal"},
+    {"clave": "plata", "nombre": "Plata", "simbolo": "SI=F", "moneda": "USD", "tipo": "metal"},
+    {"clave": "brent", "nombre": "Petróleo Brent", "simbolo": "BZ=F", "moneda": "USD", "tipo": "materia_prima"},
+    {"clave": "tesla", "nombre": "Tesla", "simbolo": "TSLA", "moneda": "USD", "tipo": "accion"},
 ]
 
 # One line each for "¿Qué significa?" (by clave; unknown markets fall back to their type)
@@ -101,7 +102,7 @@ def parsear_csv(texto):
     lector = csv.DictReader(io.StringIO(texto))
     campos = [c.strip().lower() for c in (lector.fieldnames or [])]
     if "date" not in campos or "close" not in campos:
-        raise ValueError("Stooq no ha devuelto precios (" + (texto[:40].replace("\n", " ") or "respuesta vacía") + ")")
+        raise ValueError("la fuente de precios no ha devuelto datos (" + (texto[:40].replace("\n", " ") or "respuesta vacía") + ")")
     filas = {}
     for fila in lector:
         fila = {str(k).strip().lower(): (v or "").strip() for k, v in fila.items() if k}
@@ -113,16 +114,34 @@ def parsear_csv(texto):
         if cierre > 0:
             filas[dia] = cierre
     if not filas:
-        raise ValueError("Stooq no ha devuelto precios")
+        raise ValueError("la fuente de precios no ha devuelto datos")
     return [[d, filas[d]] for d in sorted(filas)]
 
 
 def _descargar(simbolo):
     if descargar_fn is not None:
         return descargar_fn(simbolo)
-    r = requests.get(STOOQ.format(simbolo=simbolo), timeout=nucleo.TIMEOUT, headers={"User-Agent": "Mozilla/5.0"})
+    # Stooq now answers with an anti-bot page, so the prices come from Yahoo's public chart API, turned into the
+    # same Date,Close CSV the parser and the tests use
+    r = requests.get(YAHOO.format(simbolo=quote(simbolo, safe="")), timeout=nucleo.TIMEOUT, headers={"User-Agent": "Mozilla/5.0"})
     r.raise_for_status()
-    return r.text
+    return yahoo_a_csv(r.json())
+
+
+def yahoo_a_csv(datos):
+    """Yahoo chart JSON -> 'Date,Open,High,Low,Close,Volume' CSV text (only Date and Close are real; days without a
+    close are skipped). Raises ValueError when the answer carries no prices."""
+    try:
+        res = datos["chart"]["result"][0]
+        ts, cierres = res["timestamp"], res["indicators"]["quote"][0]["close"]
+    except (KeyError, IndexError, TypeError):
+        raise ValueError("la fuente de precios no ha devuelto datos")
+    filas = ["Date,Open,High,Low,Close,Volume"]
+    for t, c in zip(ts, cierres):
+        if c is not None:
+            d = datetime.fromtimestamp(int(t), timezone.utc).strftime("%Y-%m-%d")
+            filas.append(f"{d},{c},{c},{c},{c},0")
+    return "\n".join(filas)
 
 
 def _ruta(clave):
@@ -282,7 +301,7 @@ def tarjetas(cfg=None, ahora=None):
         nota = ""
         if c.get("error"):
             nota = (f"Sin datos nuevos desde {time.strftime('%d/%m %H:%M', time.localtime(c['descargado']))}"
-                    if c.get("descargado") else "Sin datos todavía: no se ha podido descargar") + " (fallo de conexión)."
+                    if c.get("descargado") else "Sin datos todavía: no se ha podido descargar") + " (la fuente de precios no respondió)."
         elif not c.get("filas"):
             nota = "Sin datos todavía: pulsa «Actualizar precios»."
         out.append({**m, **luz, "nota": nota, "explicacion": EXPLICACIONES.get(m["clave"]) or EXPLICACION_TIPO.get(m["tipo"], "")})

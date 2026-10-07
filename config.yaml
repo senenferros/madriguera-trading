@@ -53,11 +53,11 @@ backtest:
     operaciones_min: 100
     p_azar_max: 0.05
     consistencia_min: 0.5
-# Portada fácil: mercados tradicionales de Stooq (solo mirar). clave, nombre, simbolo, moneda, tipo
+# Portada fácil: mercados tradicionales de Yahoo Finance (solo mirar). clave, nombre, simbolo, moneda, tipo
 mercados_extra:
-- {clave: sp500, nombre: S&P 500, simbolo: ^spx, moneda: USD, tipo: indice}
-- {clave: ibex35, nombre: IBEX 35, simbolo: ^ibex, moneda: EUR, tipo: indice}
-- {clave: oro, nombre: Oro, simbolo: xauusd, moneda: USD, tipo: metal}
-- {clave: plata, nombre: Plata, simbolo: xagusd, moneda: USD, tipo: metal}
-- {clave: brent, nombre: Petróleo Brent, simbolo: cb.f, moneda: USD, tipo: materia_prima}
-- {clave: tesla, nombre: Tesla, simbolo: tsla.us, moneda: USD, tipo: accion}
+- {clave: sp500, nombre: S&P 500, simbolo: '^GSPC', moneda: USD, tipo: indice}
+- {clave: ibex35, nombre: IBEX 35, simbolo: '^IBEX', moneda: EUR, tipo: indice}
+- {clave: oro, nombre: Oro, simbolo: 'GC=F', moneda: USD, tipo: metal}
+- {clave: plata, nombre: Plata, simbolo: 'SI=F', moneda: USD, tipo: metal}
+- {clave: brent, nombre: Petróleo Brent, simbolo: 'BZ=F', moneda: USD, tipo: materia_prima}
+- {clave: tesla, nombre: Tesla, simbolo: 'TSLA', moneda: USD, tipo: accion}

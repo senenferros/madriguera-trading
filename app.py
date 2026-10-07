@@ -20,7 +20,7 @@ Usage:
     python app.py backtest --lista
                                the strategies available
     python app.py bolsa [--sin-red]
-                               refresh the easy page's prices (Stooq + Kraken daily) and print the traffic lights
+                               refresh the easy page's prices (Yahoo Finance + Kraken daily) and print the traffic lights
 """
 import argparse
 import sys
