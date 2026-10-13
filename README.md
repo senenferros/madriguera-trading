@@ -193,7 +193,8 @@ Necesitas Python 3.11 (marca «Add python.exe to PATH» al instalarlo). Descompr
 
 1. Copia `.env.example` como `.env` y rellena `TELEGRAM_TOKEN` (el de BotFather) y `TELEGRAM_CHAT` (tu chat con el bot). Si lo dejas vacío, la sala funciona igual, sin avisos.
 2. Haz doble clic en **`Abrir panel.bat`**: crea el entorno `.venv` si no existe, instala lo que haga falta y abre el panel en el navegador. Cierra esa ventana para apagarlo.
-3. Revisa `config.yaml` si quieres otros pares, otra hora del parte, cambiar los umbrales de las alertas o la comisión del backtest. Ojo: cada interruptor del panel reescribe `config.yaml` (los valores y los comentarios de las secciones `historico` y `backtest` se conservan; los comentarios que añadas tú a mano, no).
+3. Para que el panel arranque solo y sin ventana al encender Windows: pulsa Win+R, escribe `shell:startup` y pon en esa carpeta un acceso directo a **`arrancar_oculto.vbs`** (clic derecho sobre el archivo, «Mostrar más opciones», «Crear acceso directo», y mueve el acceso directo allí). Ese script arranca el panel con `pythonw.exe`, sin abrir el navegador, y si ya está encendido no arranca otro. Lo que escribe el panel va a `datos\panel_salida.log` y `datos\panel_error.log`. Para apagarlo, doble clic en **`apagar_panel.bat`** (para el python que escucha en el puerto 5100). El panel sigue en http://127.0.0.1:5100.
+4. Revisa `config.yaml` si quieres otros pares, otra hora del parte, cambiar los umbrales de las alertas o la comisión del backtest. Ojo: cada interruptor del panel reescribe `config.yaml` (los valores y los comentarios de las secciones `historico` y `backtest` se conservan; los comentarios que añadas tú a mano, no).
 
 Desde una terminal, en la carpeta del proyecto:
 
